@@ -5,6 +5,8 @@
 #define BUFSIZE 1024
 
 int write_n_bytes(int fd, char * buf, int count);
+int connect_ socket( char *hostname, int port);
+char *format_request( char *path );
 
 int main(int argc, char * argv[]) {
     char * server_name = NULL;
@@ -50,6 +52,7 @@ int main(int argc, char * argv[]) {
 	exit(-1);
     }
 
+    sock = connect_socket(server_name, server_port);
     /* create socket */
 
     // Do DNS lookup
@@ -60,11 +63,16 @@ int main(int argc, char * argv[]) {
     /* connect socket */
     
     /* send request */
+    req = format_request(server_path);
+    int count = send(sock, req, strlen(req), 0);
 
     /* wait till socket can be read */
     /* Hint: use select(), and ignore timeout for now. */
+    FD_SET(sock, &set);
+    select(sock + 1, &set, NULL, NULL, NULL);
     
     /* first read loop -- read headers */
+    //while( 
     
     /* examine return code */   
     //Skip "HTTP/1.0"
@@ -100,4 +108,30 @@ int write_n_bytes(int fd, char * buf, int count) {
     }
 }
 
+int connect_ socket( char *hostname, int port) {
+  int sock;
+  struct sockaddr_in sin;
+  struct hostent *host;
+  sock = socket( AF_ INET, SOCK_ STREAM, 0);
+  if (sock == -1)
+    return sock;
+  host = gethostbyname( hostname);
+  if (host == NULL) {
+    close( sock);
+    return -1;
+  }
+  memset (& sin, 0, sizeof( sin));
+  sin. sin_ family = AF_ INET;
+  sin. sin_ port = htons( port);
+  sin. sin_ addr. s_ addr = *( unsigned long *) host-> h_ addr_
+  list[ 0];
+  if (connect( sock, (struct sockaddr *) &sin, sizeof( sin)) != 0) {
+    close (sock);
+    return -1;
+  }
+  return sock;
+} 
 
+char *format_request( char *path ) {
+  return sprintf("GET %s HTTP/1.0\r\n", path);
+}
