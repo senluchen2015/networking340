@@ -92,18 +92,18 @@ int main(int argc, char * argv[]) {
       buf[rc] = '\0';
       while((oneline = index(buf, '\n')) != NULL) {
         int index = oneline - buf + 1;
-        printf("headerline: ");
-        fflush(stdout);
-        write_n_bytes(1, buf, index);
+        
+        write_n_bytes(1, buf, index+1);
         for(int pos = 0; pos < BUFSIZE - index; pos++) {
-          buf[pos] = buf[index + pos];
+          buf[pos] = buf[index + pos + 1];
         }
         if ( strncmp(buf, "\r\n", 2) == 0 || strncmp(buf, "\n", 1) == 0) {
           printf("reached end of header \n");
+	  fflush(stdout);
           break;
         }
-        break;
       }
+	break;
     }
     
     /* examine return code */   
