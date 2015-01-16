@@ -5,7 +5,7 @@
 #define BUFSIZE 1024
 
 int write_n_bytes(int fd, char * buf, int count);
-int connect_ socket( char *hostname, int port);
+int connect_socket( char *hostname, int port);
 char *format_request( char *path );
 
 int main(int argc, char * argv[]) {
@@ -23,8 +23,8 @@ int main(int argc, char * argv[]) {
     char * req = NULL;
 
     char buf[BUFSIZE + 1];
-    char * bptr = NULL;
-    char * bptr2 = NULL;
+    char * bufline = NULL;
+    char * oneline = NULL;
     char * endheaders = NULL;
    
     struct timeval timeout;
@@ -52,7 +52,12 @@ int main(int argc, char * argv[]) {
 	exit(-1);
     }
 
+    printf("initializing socket... \n");
     sock = connect_socket(server_name, server_port);
+    if (sock < 0) {
+      printf("error connecting socket \n");
+    }
+    printf("initialized socket \n");
     /* create socket */
 
     // Do DNS lookup
@@ -63,16 +68,43 @@ int main(int argc, char * argv[]) {
     /* connect socket */
     
     /* send request */
-    req = format_request(server_path);
-    int count = send(sock, req, strlen(req), 0);
+    req = (char *)malloc(sizeof("GET  HTTP/1.0\r\n") + sizeof(char) * (strlen(server_path) + 1));
+    sprintf(req, "GET %s HTTP/1.0\r\n\r\n", server_path);
+    printf("request: %s", req);
+    if (send(sock, req, strlen(req), 0) < 0) {
+      printf("error with page request \n");
+    }
+    printf("successfully sent request \n");
 
     /* wait till socket can be read */
     /* Hint: use select(), and ignore timeout for now. */
+    printf("waiting for socket to be ready... \n");
+    FD_ZERO(&set);
     FD_SET(sock, &set);
+    printf("number of socket: %d \n", sock);
     select(sock + 1, &set, NULL, NULL, NULL);
-    
+    printf("reading socket \n");
+    fflush(stdout);
     /* first read loop -- read headers */
-    //while( 
+    while((rc = recv(sock, &buf, BUFSIZE, 0)) > 0) {
+      printf("received %d bytes \n", rc);
+      //write_n_bytes(1, buf, rc);
+      buf[rc] = '\0';
+      while((oneline = index(buf, '\n')) != NULL) {
+        int index = oneline - buf + 1;
+        printf("headerline: ");
+        fflush(stdout);
+        write_n_bytes(1, buf, index);
+        for(int pos = 0; pos < BUFSIZE - index; pos++) {
+          buf[pos] = buf[index + pos];
+        }
+        if ( strncmp(buf, "\r\n", 2) == 0 || strncmp(buf, "\n", 1) == 0) {
+          printf("reached end of header \n");
+          break;
+        }
+        break;
+      }
+    }
     
     /* examine return code */   
     //Skip "HTTP/1.0"
@@ -108,11 +140,11 @@ int write_n_bytes(int fd, char * buf, int count) {
     }
 }
 
-int connect_ socket( char *hostname, int port) {
+int connect_socket( char *hostname, int port) {
   int sock;
   struct sockaddr_in sin;
   struct hostent *host;
-  sock = socket( AF_ INET, SOCK_ STREAM, 0);
+  sock = socket( AF_INET, SOCK_STREAM, 0);
   if (sock == -1)
     return sock;
   host = gethostbyname( hostname);
@@ -121,17 +153,13 @@ int connect_ socket( char *hostname, int port) {
     return -1;
   }
   memset (& sin, 0, sizeof( sin));
-  sin. sin_ family = AF_ INET;
-  sin. sin_ port = htons( port);
-  sin. sin_ addr. s_ addr = *( unsigned long *) host-> h_ addr_
-  list[ 0];
-  if (connect( sock, (struct sockaddr *) &sin, sizeof( sin)) != 0) {
+  sin.sin_family = AF_INET;
+  sin.sin_port = htons( port);
+  sin.sin_addr.s_addr = *( unsigned long *) host-> h_addr_list[0];
+  if (connect(sock, (struct sockaddr *) &sin, sizeof(sin)) != 0) {
     close (sock);
     return -1;
   }
   return sock;
 } 
 
-char *format_request( char *path ) {
-  return sprintf("GET %s HTTP/1.0\r\n", path);
-}
