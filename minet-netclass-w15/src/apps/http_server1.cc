@@ -10,6 +10,8 @@
 int handle_connection(int);
 int writenbytes(int,char *,int);
 int readnbytes(int,char *,int);
+int make_listen_socket( int port);
+int get_client_socket( int listen_socket);
 
 int main(int argc,char *argv[])
 {
@@ -32,20 +34,50 @@ int main(int argc,char *argv[])
   }
 
   /* initialize and make socket */
-
   /* set server address*/
-
   /* bind listening socket */
-
   /* start listening */
+  sock = make_listen_socket(server_port);
 
   /* connection handling loop */
   while(1)
   {
     /* handle connections */
+    sock2 = get_client_socket(sock);
     rc = handle_connection(sock2);
   }
 }
+
+/* source: recitation slides */
+int make_listen_socket( int port) {
+  struct sockaddr_in sin;
+  int sock;
+  sock = socket( AF_INET, SOCK_STREAM, 0);
+  if (sock < 0)
+    return -1;
+  memset(& sin, 0, sizeof( sin));
+  sin.sin_family = AF_INET;
+  sin.sin_addr.s_addr = htonl( INADDR_ANY);
+  sin.sin_port = htons( port);
+  if (bind( sock, (struct sockaddr *) &sin, sizeof( sin)) < 0) {
+    return -1;
+  }
+  // accept 5 connections on backlog
+  listen(sock, 5);
+  return sock;
+} 
+
+int get_client_socket( int listen_socket) {
+  struct sockaddr_in sin;
+  int sock;
+  socklen_t sin_len;
+  memset(& sin, 0, sizeof( sin));
+  sin_len = sizeof( sin);
+  if ((sock = accept( listen_socket, (struct sockaddr *) &sin, &sin_len)) < 0) {
+    return -1;
+  }
+  return sock;
+} 
 
 int handle_connection(int sock2)
 {
@@ -70,18 +102,29 @@ int handle_connection(int sock2)
   bool ok=true;
 
   /* first read loop -- get request and headers*/
-
+  while( (rc = recv(sock2, &buf, BUFSIZE, 0)) > 0) {
+    printf(buf);
+    break;
+  }
   /* parse request to get file name */
   /* Assumption: this is a GET request and filename contains no spaces*/
 
     /* try opening the file */
 
+  printf("out of loop \n");
+  fflush(stdout);
   /* send response */
   if (ok)
   {
     /* send headers */
-
+    char *response = "8===================D";
+    printf(response);
+    fflush(stdout);
+    if (send(sock2,response, strlen(response), 0) < 0) {
+      printf("problem \n");
+    }
     /* send file */
+    close(sock2);
   }
   else // send error response
   {
@@ -103,9 +146,7 @@ int readnbytes(int fd,char *buf,int size)
     totalread += rc;
 
   if (rc < 0)
-  {
     return -1;
-  }
   else
     return totalread;
 }
