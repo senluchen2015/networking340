@@ -17,6 +17,7 @@ int main(int argc, char * argv[]) {
     int rc = -1;
     int datalen = 0;
     bool ok = true;
+    int outfd = 1;
     struct sockaddr_in sa;
     FILE * wheretoprint = stdout;
     struct hostent * site = NULL;
@@ -85,25 +86,34 @@ int main(int argc, char * argv[]) {
     select(sock + 1, &set, NULL, NULL, NULL);
     printf("reading socket \n");
     fflush(stdout);
+
+    bool checkedfirst = false;
     /* first read loop -- read headers */
     while((rc = recv(sock, &buf, BUFSIZE, 0)) > 0) {
-      printf("received %d bytes \n", rc);
-      //write_n_bytes(1, buf, rc);
+      //printf("received %d bytes \n", rc);
       buf[rc] = '\0';
       while((oneline = index(buf, '\n')) != NULL) {
         int index = oneline - buf + 1;
-        
-        write_n_bytes(1, buf, index+1);
+        /* first read server response */
+        if (!checkedfirst) {
+          checkedfirst = true;
+          if ( strncmp(buf, "HTTP/1.0 200", 12) == 0 || strncmp(buf, "HTTP/1.0 3", 10) == 0 || strncmp(buf, "HTTP/1.1 200", 12) == 0 || strncmp(buf, "HTTP/1.1 3", 10) == 0) { printf("okay code obtained \n\n");}
+          else {
+            ok = false;
+            printf(" error code received \n\n");
+            outfd = 2;
+          }
+        }
+        write_n_bytes(outfd, buf, index+1);
         for(int pos = 0; pos < BUFSIZE - index; pos++) {
           buf[pos] = buf[index + pos + 1];
         }
         if ( strncmp(buf, "\r\n", 2) == 0 || strncmp(buf, "\n", 1) == 0) {
           printf("reached end of header \n");
 	  fflush(stdout);
-          break;
+          //break;
         }
       }
-	break;
     }
     
     /* examine return code */   
@@ -116,7 +126,8 @@ int main(int argc, char * argv[]) {
     /* second read loop -- print out the rest of the response */
     
     /*close socket and deinitialize */
-
+    close(sock);
+    free(req);
 
     if (ok) {
 	return 0;
