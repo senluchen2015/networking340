@@ -69,7 +69,7 @@ int main(int argc, char * argv[]) {
     /* connect socket */
     
     /* send request */
-    req = (char *)malloc(sizeof("GET  HTTP/1.0\r\n") + sizeof(char) * (strlen(server_path) + 1));
+    req = (char *)malloc(sizeof("GET  HTTP/1.0\r\n\r\n") + sizeof(char) * (strlen(server_path) + 1));
     sprintf(req, "GET %s HTTP/1.0\r\n\r\n", server_path);
     printf("request: %s", req);
     if (send(sock, req, strlen(req), 0) < 0) {

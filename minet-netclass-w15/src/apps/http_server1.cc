@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <stdio.h>
 
 #define BUFSIZE 1024
 #define FILENAMESIZE 100
@@ -86,6 +87,7 @@ int handle_connection(int sock2)
   int fd;
   struct stat filestat;
   char buf[BUFSIZE+1];
+  char reqbuf[BUFSIZE+1];
   char *headers;
   char *endheaders;
   char *bptr;
@@ -102,35 +104,78 @@ int handle_connection(int sock2)
   bool ok=true;
 
   /* first read loop -- get request and headers*/
-  while( (rc = recv(sock2, &buf, BUFSIZE, 0)) > 0) {
-    printf(buf);
-    break;
+  while( (rc = recv(sock2, &reqbuf, BUFSIZE, 0)) > 0) {
+    reqbuf[rc] = '\0';
+    printf(reqbuf);
+    fflush(stdout);
+    if (strstr(reqbuf, "\r\n\r\n")) {
+      printf("detected end of request \n");
+      break;
+    }
   }
+
   /* parse request to get file name */
+  char *req = strtok(reqbuf, " ");
+  // skip GET
+  req = strtok(NULL, " ");
   /* Assumption: this is a GET request and filename contains no spaces*/
-
-    /* try opening the file */
-
-  printf("out of loop \n");
+  printf("request: %s \n", req);
   fflush(stdout);
+  /* direct requests relative to current directory of server */
+  getcwd(filename, FILENAMESIZE);
+  printf("current directory: %s \n", filename);
+  fflush(stdout);
+  strcat(filename, "/..");
+  strcat(filename, req);
+  printf("relative path requested: %s \n", filename);
+  /* try opening the file */
+  if (access(filename, F_OK) == -1) {
+    printf("error: no file exists \n");
+    ok = false;
+  } else {
+    printf("file found \n");
+    stat(filename, &filestat);
+  }
   /* send response */
   if (ok)
   {
     /* send headers */
-    char *response = "8===================D";
-    printf(response);
+    sprintf(ok_response, ok_response_f, filestat.st_size);
+    printf(ok_response);
     fflush(stdout);
-    if (send(sock2,response, strlen(response), 0) < 0) {
+    if (send(sock2,ok_response, strlen(ok_response), 0) < 0) {
       printf("problem \n");
     }
     /* send file */
-    close(sock2);
+    printf("sending file \n");
+    if ((fd = open(filename, O_RDONLY)) < 0) {
+      printf("error opening file \n");
+      ok = false;
+    }
+    if( send(sock2, "8====D", 6, 0) < 0) {
+      printf("\n\n error sending file \n\n\n");
+      fflush(stdout);
+    }
+
+    while ( (rc = read(fd, buf, BUFSIZE)) > 0) {
+      printf("reading file \n");
+      printf("reading n bytes: %d \n", rc);
+      int result = send(sock2, buf, rc, 0);
+      if (result < 0) {
+        printf("\n\n error sending file \n\n\n");
+        fflush(stdout);
+      } else {
+        printf("result of send: %d \n", result);
+      }
+    }
   }
   else // send error response
   {
+    send(sock2, notok_response, strlen(notok_response), 0);
   }
 
   /* close socket and free space */
+  close(sock2);
 
   if (ok)
     return 0;
