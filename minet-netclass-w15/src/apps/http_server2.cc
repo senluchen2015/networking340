@@ -8,6 +8,8 @@
 #define FILENAMESIZE 100
 
 int handle_connection(int);
+int make_listen_socket( int port);
+int get_client_socket( int listen_socket);
 int writenbytes(int,char *,int);
 int readnbytes(int,char *,int);
 
@@ -35,31 +37,79 @@ int main(int argc,char *argv[])
   }
 
   /* initialize and make socket */
-
   /* set server address*/
-
   /* bind listening socket */
-
   /* start listening */
+  sock = make_listen_socket(server_port);
+  FD_ZERO(&connections);
+  FD_SET(sock, &connections);
+  maxfd = sock;
 
   /* connection handling loop */
   while(1)
   {
     /* create read list */
+    readlist = connections;
 
     /* do a select */
-
+    select(maxfd+1, &readlist, NULL, NULL, NULL);
+    printf("finished select \n");
+    printf("current fd_set: %d \n", readlist);
+    printf("maxfd: %d \n", maxfd);
     /* process sockets that are ready */
-
-      /* for the accept socket, add accepted connection to connections */
-      if (i == sock)
-      {
+    for(i = 0; i < maxfd + 1; i++) {
+      if (FD_ISSET(i, &readlist)) {
+        /* for the accept socket, add accepted connection to connections */
+        if (i == sock)
+        {
+          if ((sock2 = get_client_socket(sock)) > 0) {
+            printf("received connection request \n");
+            if (sock2 > maxfd) {
+              maxfd = sock2;
+            }
+            FD_SET(sock2, &connections);
+          }
+        }
+        else /* for a connection socket, handle the connection */
+        {
+          printf("received write request \n");
+          rc = handle_connection(i);
+          FD_CLR(i, &connections);
+        }
       }
-      else /* for a connection socket, handle the connection */
-      {
-	rc = handle_connection(i);
-      }
+    }
   }
+}
+
+/* source: recitation slides */
+int make_listen_socket( int port) {
+  struct sockaddr_in sin;
+  int sock;
+  sock = socket( AF_INET, SOCK_STREAM, 0);
+  if (sock < 0)
+    return -1;
+  memset(& sin, 0, sizeof( sin));
+  sin.sin_family = AF_INET;
+  sin.sin_addr.s_addr = htonl( INADDR_ANY);
+  sin.sin_port = htons( port);
+  if (bind( sock, (struct sockaddr *) &sin, sizeof( sin)) < 0) {
+    return -1;
+  }
+  // accept 5 connections on backlog
+  listen(sock, 5);
+  return sock;
+}
+
+int get_client_socket( int listen_socket) {
+  struct sockaddr_in sin;
+  int sock;
+  socklen_t sin_len;
+  memset(& sin, 0, sizeof( sin));
+  sin_len = sizeof( sin);
+  if ((sock = accept( listen_socket, (struct sockaddr *) &sin, &sin_len)) < 0) {
+    return -1;
+  }
+  return sock;
 }
 
 int handle_connection(int sock2)
@@ -69,6 +119,7 @@ int handle_connection(int sock2)
   int fd;
   struct stat filestat;
   char buf[BUFSIZE+1];
+  char reqbuf[BUFSIZE+1];
   char *headers;
   char *endheaders;
   char *bptr;
@@ -80,29 +131,79 @@ int handle_connection(int sock2)
   char *notok_response = "HTTP/1.0 404 FILE NOT FOUND\r\n"\
                          "Content-type: text/html\r\n\r\n"\
                          "<html><body bgColor=black text=white>\n"\
-                         "<h2>404 FILE NOT FOUND</h2>\n"\
+                         "<h2>404 FILE NOT FOUND</h2>\n"
                          "</body></html>\n";
   bool ok=true;
 
   /* first read loop -- get request and headers*/
+  while( (rc = recv(sock2, &reqbuf, BUFSIZE, 0)) > 0) {
+    reqbuf[rc] = '\0';
+    printf(reqbuf);
+    fflush(stdout);
+    if (strstr(reqbuf, "\r\n\r\n")) {
+      printf("detected end of request \n");
+      break;
+    }
+  }
 
   /* parse request to get file name */
+  char *req = strtok(reqbuf, " ");
+  // skip GET
+  req = strtok(NULL, " ");
   /* Assumption: this is a GET request and filename contains no spaces*/
-
-    /* try opening the file */
-
+  printf("request: %s \n", req);
+  fflush(stdout);
+  /* direct requests relative to current directory of server */
+  getcwd(filename, FILENAMESIZE);
+  printf("current directory: %s \n", filename);
+  fflush(stdout);
+  //strcat(filename, "/..");
+  strcat(filename, req);
+  printf("relative path requested: %s \n", filename);
+  /* try opening the file */
+  if (access(filename, F_OK) == -1) {
+    printf("error: no file exists \n");
+    ok = false;
+  } else {
+    printf("file found \n");
+    stat(filename, &filestat);
+  }
   /* send response */
   if (ok)
   {
     /* send headers */
-
+    sprintf(ok_response, ok_response_f, filestat.st_size);
+    printf(ok_response);
+    fflush(stdout);
+    if (send(sock2,ok_response, strlen(ok_response), 0) < 0) {
+      printf("problem \n");
+    }
     /* send file */
+    printf("sending file \n");
+    if ((fd = open(filename, O_RDONLY)) < 0) {
+      printf("error opening file \n");
+      ok = false;
+    }
+
+    while ( (rc = read(fd, buf, BUFSIZE)) > 0) {
+      printf("reading file \n");
+      printf("reading n bytes: %d \n", rc);
+      int result = send(sock2, buf, rc, 0);
+      if (result < 0) {
+        printf("\n\n error sending file \n\n\n");
+        fflush(stdout);
+      } else {
+        /*printf("result of send: %d \n", result);*/
+      }
+    }
   }
-  else	// send error response
+  else // send error response
   {
+    send(sock2, notok_response, strlen(notok_response), 0);
   }
 
   /* close socket and free space */
+  close(sock2);
 
   if (ok)
     return 0;

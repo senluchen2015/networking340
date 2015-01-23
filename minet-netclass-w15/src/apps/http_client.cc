@@ -53,12 +53,12 @@ int main(int argc, char * argv[]) {
 	exit(-1);
     }
 
-    printf("initializing socket... \n");
+    /*printf("initializing socket... \n");*/
     sock = connect_socket(server_name, server_port);
     if (sock < 0) {
       printf("error connecting socket \n");
     }
-    printf("initialized socket \n");
+    /*printf("initialized socket \n");*/
     /* create socket */
 
     // Do DNS lookup
@@ -71,20 +71,20 @@ int main(int argc, char * argv[]) {
     /* send request */
     req = (char *)malloc(sizeof("GET  HTTP/1.0\r\n\r\n") + sizeof(char) * (strlen(server_path) + 1));
     sprintf(req, "GET %s HTTP/1.0\r\n\r\n", server_path);
-    printf("request: %s", req);
+    /*printf("request: %s", req);*/
     if (send(sock, req, strlen(req), 0) < 0) {
       printf("error with page request \n");
     }
-    printf("successfully sent request \n");
+    /*printf("successfully sent request \n");*/
 
     /* wait till socket can be read */
     /* Hint: use select(), and ignore timeout for now. */
-    printf("waiting for socket to be ready... \n");
+    /*printf("waiting for socket to be ready... \n");*/
     FD_ZERO(&set);
     FD_SET(sock, &set);
-    printf("number of socket: %d \n", sock);
+    /*printf("number of socket: %d \n", sock);*/
     select(sock + 1, &set, NULL, NULL, NULL);
-    printf("reading socket \n");
+    /*printf("reading socket \n");*/
     fflush(stdout);
 
     bool checkedfirst = false;
@@ -97,10 +97,10 @@ int main(int argc, char * argv[]) {
         /* first read server response */
         if (!checkedfirst) {
           checkedfirst = true;
-          if ( strncmp(buf, "HTTP/1.0 200", 12) == 0 || strncmp(buf, "HTTP/1.0 3", 10) == 0 || strncmp(buf, "HTTP/1.1 200", 12) == 0 || strncmp(buf, "HTTP/1.1 3", 10) == 0) { printf("okay code obtained \n\n");}
+          if ( strncmp(buf, "HTTP/1.0 200", 12) == 0 || strncmp(buf, "HTTP/1.0 3", 10) == 0 || strncmp(buf, "HTTP/1.1 200", 12) == 0 || strncmp(buf, "HTTP/1.1 3", 10) == 0) { /*printf("okay code obtained \n\n"); */}
           else {
             ok = false;
-            printf(" error code received \n\n");
+            /*printf(" error code received \n\n");*/
             outfd = 2;
           }
         }
@@ -109,7 +109,7 @@ int main(int argc, char * argv[]) {
           buf[pos] = buf[index + pos + 1];
         }
         if ( strncmp(buf, "\r\n", 2) == 0 || strncmp(buf, "\n", 1) == 0) {
-          printf("reached end of header \n");
+          /*printf("reached end of header \n");*/
 	  fflush(stdout);
           //break;
         }

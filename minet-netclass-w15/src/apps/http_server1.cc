@@ -125,7 +125,7 @@ int handle_connection(int sock2)
   getcwd(filename, FILENAMESIZE);
   printf("current directory: %s \n", filename);
   fflush(stdout);
-  strcat(filename, "/..");
+  //strcat(filename, "/..");
   strcat(filename, req);
   printf("relative path requested: %s \n", filename);
   /* try opening the file */
@@ -152,10 +152,6 @@ int handle_connection(int sock2)
       printf("error opening file \n");
       ok = false;
     }
-    if( send(sock2, "8====D", 6, 0) < 0) {
-      printf("\n\n error sending file \n\n\n");
-      fflush(stdout);
-    }
 
     while ( (rc = read(fd, buf, BUFSIZE)) > 0) {
       printf("reading file \n");
@@ -165,7 +161,7 @@ int handle_connection(int sock2)
         printf("\n\n error sending file \n\n\n");
         fflush(stdout);
       } else {
-        printf("result of send: %d \n", result);
+        /*printf("result of send: %d \n", result);*/
       }
     }
   }
