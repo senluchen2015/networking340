@@ -102,70 +102,86 @@ int handle_connection(int sock2)
                          "<h2>404 FILE NOT FOUND</h2>\n"
                          "</body></html>\n";
   bool ok=true;
+  char fullreq[BUFSIZE+1];
+  bool firstrcv = true;
 
   /* first read loop -- get request and headers*/
   while( (rc = recv(sock2, &reqbuf, BUFSIZE, 0)) > 0) {
     reqbuf[rc] = '\0';
-    printf(reqbuf);
+    if (firstrcv) {
+      strcpy(fullreq, reqbuf);
+      firstrcv = false;
+    } else {
+      strcat(fullreq, reqbuf);
+    }
+    printf(fullreq);
     fflush(stdout);
-    if (strstr(reqbuf, "\r\n\r\n")) {
+    if (strstr(fullreq, "\r\n\r\n")) {
       printf("detected end of request \n");
       break;
     }
   }
 
   /* parse request to get file name */
-  char *req = strtok(reqbuf, " ");
+  char *req = strtok(fullreq, " ");
   // skip GET
   req = strtok(NULL, " ");
-  /* Assumption: this is a GET request and filename contains no spaces*/
-  printf("request: %s \n", req);
-  fflush(stdout);
-  /* direct requests relative to current directory of server */
-  getcwd(filename, FILENAMESIZE);
-  printf("current directory: %s \n", filename);
-  fflush(stdout);
-  //strcat(filename, "/..");
-  strcat(filename, req);
-  printf("relative path requested: %s \n", filename);
-  /* try opening the file */
-  if (access(filename, F_OK) == -1) {
-    printf("error: no file exists \n");
+  if (!req) {
     ok = false;
-  } else {
-    printf("file found \n");
-    stat(filename, &filestat);
+  }
+  if (ok) {
+    /* Assumption: this is a GET request and filename contains no spaces*/
+    printf("request: %s \n", req);
+    fflush(stdout);
+    /* direct requests relative to current directory of server */
+    getcwd(filename, FILENAMESIZE);
+    //printf("current directory: %s \n", filename);
+    fflush(stdout);
+    strcat(filename, "/");
+    strcat(filename, req);
+    printf("relative path requested: %s \n", filename);
+    /* try opening the file */
+    if (access(filename, F_OK) == -1) {
+      printf("error: no file exists \n");
+      ok = false;
+    } else {
+      printf("file found \n");
+      stat(filename, &filestat);
+    }
   }
   /* send response */
-  if (ok)
+  while (ok)
   {
+    /* send file */
+    //printf("sending file \n");
+    if ((fd = open(filename, O_RDONLY)) < 0 || !(S_ISREG(filestat.st_mode))) {
+      printf("error reading requested file %s \n", filename);
+      fflush(stdout);
+      ok = false;
+      break;
+    }
     /* send headers */
     sprintf(ok_response, ok_response_f, filestat.st_size);
-    printf(ok_response);
+    //printf(ok_response);
     fflush(stdout);
     if (send(sock2,ok_response, strlen(ok_response), 0) < 0) {
-      printf("problem \n");
-    }
-    /* send file */
-    printf("sending file \n");
-    if ((fd = open(filename, O_RDONLY)) < 0) {
-      printf("error opening file \n");
-      ok = false;
+      //printf("problem \n");
     }
 
     while ( (rc = read(fd, buf, BUFSIZE)) > 0) {
-      printf("reading file \n");
-      printf("reading n bytes: %d \n", rc);
+      //printf("reading file \n");
+      //printf("reading n bytes: %d \n", rc);
       int result = send(sock2, buf, rc, 0);
       if (result < 0) {
-        printf("\n\n error sending file \n\n\n");
+        //printf("\n\n error sending file \n\n\n");
         fflush(stdout);
       } else {
         /*printf("result of send: %d \n", result);*/
       }
     }
+    break;
   }
-  else // send error response
+  if (!ok) // send error response
   {
     send(sock2, notok_response, strlen(notok_response), 0);
   }

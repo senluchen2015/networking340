@@ -85,32 +85,45 @@ int main(int argc, char * argv[]) {
     /*printf("number of socket: %d \n", sock);*/
     select(sock + 1, &set, NULL, NULL, NULL);
     /*printf("reading socket \n");*/
-    fflush(stdout);
+    //fflush(stdout);
 
     bool checkedfirst = false;
+    bool shouldprint = false;
     /* first read loop -- read headers */
     while((rc = recv(sock, &buf, BUFSIZE, 0)) > 0) {
       //printf("received %d bytes \n", rc);
       buf[rc] = '\0';
       while((oneline = index(buf, '\n')) != NULL) {
-        int index = oneline - buf + 1;
+        int indexendline = oneline - buf + 1;
         /* first read server response */
         if (!checkedfirst) {
           checkedfirst = true;
           if ( strncmp(buf, "HTTP/1.0 200", 12) == 0 || strncmp(buf, "HTTP/1.0 3", 10) == 0 || strncmp(buf, "HTTP/1.1 200", 12) == 0 || strncmp(buf, "HTTP/1.1 3", 10) == 0) { /*printf("okay code obtained \n\n"); */}
           else {
             ok = false;
+            shouldprint = true;
             /*printf(" error code received \n\n");*/
             outfd = 2;
           }
         }
-        write_n_bytes(outfd, buf, index+1);
-        for(int pos = 0; pos < BUFSIZE - index; pos++) {
-          buf[pos] = buf[index + pos + 1];
+        if (shouldprint) {
+          write_n_bytes(outfd, buf, indexendline+1);
+        }
+        for(int pos = 0; pos < BUFSIZE - indexendline; pos++) {
+          buf[pos] = buf[indexendline + pos + 1];
         }
         if ( strncmp(buf, "\r\n", 2) == 0 || strncmp(buf, "\n", 1) == 0) {
+          if (!shouldprint) {
+            shouldprint = true;
+            oneline = index(buf, '\n');
+            int indexendline = oneline - buf + 1;
+            for(int pos = 0; pos < BUFSIZE - indexendline; pos++) {
+              buf[pos] = buf[indexendline + pos];
+            }
+          }
+
           /*printf("reached end of header \n");*/
-	  fflush(stdout);
+	  //fflush(stdout);
           //break;
         }
       }
