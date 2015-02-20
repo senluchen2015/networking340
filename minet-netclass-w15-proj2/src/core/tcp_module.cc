@@ -56,10 +56,11 @@ int main(int argc, char *argv[])
     } else {
       //  Data from the IP layer below  //
       if (event.handle==mux) {
+        cerr << " \n started block from mux \n " << endl;
         Packet p;
         MinetReceive(mux,p);
         unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
-        cerr << "estimated header len="<<tcphlen<<"\n";
+        cerr << "estimated header len="<<tcphlen<<"\n" << endl;
         p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
         IPHeader iph=p.FindHeader(Headers::IPHeader);
         TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
@@ -96,29 +97,46 @@ int main(int argc, char *argv[])
               cerr << "It's a SYN! Sending SYN ACK" << endl;
               Packet synackpack = Packet();
               IPHeader resiph = IPHeader();
-              resiph.SetDestIP(c.src);
-              resiph.SetSourceIP(c.dest);
+              resiph.SetDestIP(c.dest);
+              resiph.SetSourceIP(c.src);
               resiph.SetProtocol(c.protocol);
               cerr << "set IP headers " << endl;
               synackpack.PushFrontHeader(resiph);
               cerr << "added IP header to packet" << endl;
+              cerr << "src IP: " << c.src << endl;
+              cerr << "dest IP: " << c.dest << endl;
               char buf[len];
               TCPHeader restcph = TCPHeader(buf, len);
               cerr << "initialized tcp header" << endl;
-              restcph.SetSourcePort(c.destport, synackpack);
-              restcph.SetDestPort(c.srcport, synackpack);
-              cerr << "set TCP ports " << endl;
-              restcph.SetSeqNum(0, synackpack);
+              restcph.SetSourcePort(c.srcport, synackpack);
+              restcph.SetDestPort(c.destport, synackpack);
+              cerr << "set TCP ports: destport " << endl;
+              cerr << "src port: " << c.srcport << endl;
+              cerr << "dest port: " << c.destport << endl;
+              restcph.SetSeqNum(300, synackpack);
               cerr << "set TCP seqnum" << endl;
               restcph.SetAckNum(seq_number + 1, synackpack);
               cerr << "set TCP headers " << endl;
               SET_ACK(flags);
               restcph.SetFlags(flags, synackpack);
               cerr << "set TCP flags " << endl;
-              synackpack.PushFrontHeader(restcph);
+              synackpack.PushBackHeader(restcph);
               cerr << "added TCP header to packet" << endl;
-              MinetSend(mux, synackpack);
+              cerr << "Response TCP Packet: IP Header is " << resiph <<" and " << endl;
+              cerr << "Response TCP header is " << restcph <<" and " << endl;
+              int result = MinetSend(mux, synackpack);
+              int secondResult = MinetSend(mux, synackpack);
               cerr << "sent packet " << endl;
+              if (result < 0) {
+                cerr << "Minet Send resulted in error " << endl;
+              } else {
+                cerr << "Minet Send successful " << endl;
+              }
+              if (secondResult < 0) {
+                cerr << "Minet second Send resulted in error " << endl;
+              } else {
+                cerr << "Minet second Send successful " << endl;
+              }
             }
           }
         }
@@ -142,6 +160,7 @@ int main(int argc, char *argv[])
       if (event.handle==sock) {
         SockRequestResponse req;
         MinetReceive(sock,req);
+        cerr << "req is " << req << endl;
         if (req.type == ACCEPT) {
           cerr << "Socket request type is ACCEPT \n" << endl;
           ConnectionToStateMapping<TCPState> m;
