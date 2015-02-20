@@ -12,6 +12,7 @@
 
 
 #include <iostream>
+#include "tcpstate.h"
 
 #include "Minet.h"
 
@@ -44,34 +45,117 @@ int main(int argc, char *argv[])
 
   MinetEvent event;
 
+  ConnectionList<TCPState> clist;
+
   while (MinetGetNextEvent(event)==0) {
     // if we received an unexpected type of event, print error
     if (event.eventtype!=MinetEvent::Dataflow 
-	|| event.direction!=MinetEvent::IN) {
+        || event.direction!=MinetEvent::IN) {
       MinetSendToMonitor(MinetMonitoringEvent("Unknown event ignored."));
-    // if we received a valid event from Minet, do processing
+      // if we received a valid event from Minet, do processing
     } else {
       //  Data from the IP layer below  //
       if (event.handle==mux) {
-	Packet p;
-	MinetReceive(mux,p);
-	unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
-	cerr << "estimated header len="<<tcphlen<<"\n";
-	p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
-	IPHeader ipl=p.FindHeader(Headers::IPHeader);
-	TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
+        Packet p;
+        MinetReceive(mux,p);
+        unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
+        cerr << "estimated header len="<<tcphlen<<"\n";
+        p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
+        IPHeader iph=p.FindHeader(Headers::IPHeader);
+        TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
 
-	cerr << "TCP Packet: IP Header is "<<ipl<<" and ";
-	cerr << "TCP Header is "<<tcph << " and ";
+        Connection c;
+        // note that this is flipped around because
+        // "source" is interepreted as "this machine"
+        iph.GetDestIP(c.src);
+        iph.GetSourceIP(c.dest);
+        iph.GetProtocol(c.protocol);
+        tcph.GetDestPort(c.srcport);
+        tcph.GetSourcePort(c.destport);
 
-	cerr << "Checksum is " << (tcph.IsCorrectChecksum(p) ? "VALID" : "INVALID");
-	
+        ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+
+        cerr << "TCP Packet: IP Header is "<<iph<<" and ";
+        cerr << "TCP Header is "<<tcph << " and ";
+
+        cerr << "Checksum is " << (tcph.IsCorrectChecksum(p) ? "VALID" : "INVALID");
+
+        if (cs!=clist.end()) {
+          cerr << "connection TCPState state is " << (*cs).state.GetState() << endl;
+          if ((*cs).state.GetState() == LISTEN) {
+            Buffer &buf = p.GetPayload();
+            unsigned char len = 0;
+            unsigned char flags = 0;
+            unsigned int seq_number = 0;
+            size_t buflen = buf.GetSize();
+            tcph.GetHeaderLen(len);
+            tcph.GetFlags(flags);
+            tcph.GetSeqNum(seq_number);
+            cerr << "new seq_number is " << seq_number + 1 << endl;
+            if (IS_SYN(flags)) {
+              cerr << "It's a SYN! Sending SYN ACK" << endl;
+              Packet synackpack = Packet();
+              IPHeader resiph = IPHeader();
+              resiph.SetDestIP(c.src);
+              resiph.SetSourceIP(c.dest);
+              resiph.SetProtocol(c.protocol);
+              cerr << "set IP headers " << endl;
+              synackpack.PushFrontHeader(resiph);
+              cerr << "added IP header to packet" << endl;
+              char buf[len];
+              TCPHeader restcph = TCPHeader(buf, len);
+              cerr << "initialized tcp header" << endl;
+              restcph.SetSourcePort(c.destport, synackpack);
+              restcph.SetDestPort(c.srcport, synackpack);
+              cerr << "set TCP ports " << endl;
+              restcph.SetSeqNum(0, synackpack);
+              cerr << "set TCP seqnum" << endl;
+              restcph.SetAckNum(seq_number + 1, synackpack);
+              cerr << "set TCP headers " << endl;
+              SET_ACK(flags);
+              restcph.SetFlags(flags, synackpack);
+              cerr << "set TCP flags " << endl;
+              synackpack.PushFrontHeader(restcph);
+              cerr << "added TCP header to packet" << endl;
+              MinetSend(mux, synackpack);
+              cerr << "sent packet " << endl;
+            }
+          }
+        }
+        Buffer &buf = p.GetPayload();
+        unsigned char len = 0;
+        unsigned char flags = 0;
+        unsigned int seq_number = 0;
+        size_t buflen = buf.GetSize();
+        tcph.GetHeaderLen(len);
+        tcph.GetFlags(flags);
+
+        char sample[buflen+1];
+        buf.GetData(sample, buflen, 0);
+        sample[buflen] = '\0';
+        cerr << " buffer length is " << buf.GetSize();
+        cerr << " tcp header len is " << len;
+        cerr << " printing data " << sample;
+
       }
       //  Data from the Sockets layer above  //
       if (event.handle==sock) {
-	SockRequestResponse s;
-	MinetReceive(sock,s);
-	cerr << "Received Socket Request:" << s << endl;
+        SockRequestResponse req;
+        MinetReceive(sock,req);
+        if (req.type == ACCEPT) {
+          cerr << "Socket request type is ACCEPT \n" << endl;
+          ConnectionToStateMapping<TCPState> m;
+          m.connection=req.connection;
+          m.state.SetState(LISTEN);
+          // remove any old accept that might be there.
+          ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+          if (cs!=clist.end()) {
+            clist.erase(cs);
+          }
+          clist.push_back(m);
+          cerr << "added accept socket to list of connections \n" << endl;
+        }
+        cerr << "Received Socket Request:" << req << endl;
       }
     }
   }

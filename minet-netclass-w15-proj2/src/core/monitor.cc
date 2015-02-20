@@ -64,37 +64,37 @@ int main(int argc, char *argv[])
       MinetReceive(myevent.handle,desc);
       cerr << std::setprecision(20) << desc << " : ";
       switch (desc.datatype) {
-      case MINET_EVENT:
-	MinetReceive(myevent.handle,event);
-	cerr << event << endl;
-	break;
-      case MINET_MONITORINGEVENT:
-	MinetReceive(myevent.handle,monevent);
-	cerr << monevent << endl;
-	break;
-      case MINET_RAWETHERNETPACKET:
-	MinetReceive(myevent.handle,rawpacket);
-	cerr << rawpacket << endl;
-	break;
-      case MINET_PACKET:
-	MinetReceive(myevent.handle,packet);
-	cerr << packet << endl;
-	break;
-      case MINET_ARPREQUESTRESPONSE:
-	MinetReceive(myevent.handle,arr);
-	cerr << arr << endl;
-	break;
-      case MINET_SOCKREQUESTRESPONSE:
-	MinetReceive(myevent.handle,srr);
-	cerr << srr << endl;
-	break;
-      case MINET_SOCKLIBREQUESTRESPONSE:
-	MinetReceive(myevent.handle,slrr);
-	cerr << slrr << endl;
-	break;
-      case MINET_NONE:
-      default:
-	break;
+        case MINET_EVENT:
+          MinetReceive(myevent.handle,event);
+          cerr << event << endl;
+          break;
+        case MINET_MONITORINGEVENT:
+          MinetReceive(myevent.handle,monevent);
+          cerr << monevent << endl;
+          break;
+        case MINET_RAWETHERNETPACKET:
+          MinetReceive(myevent.handle,rawpacket);
+          cerr << rawpacket << endl;
+          break;
+        case MINET_PACKET:
+          MinetReceive(myevent.handle,packet);
+          cerr << packet << endl;
+          break;
+        case MINET_ARPREQUESTRESPONSE:
+          MinetReceive(myevent.handle,arr);
+          cerr << arr << endl;
+          break;
+        case MINET_SOCKREQUESTRESPONSE:
+          MinetReceive(myevent.handle,srr);
+          cerr << srr << endl;
+          break;
+        case MINET_SOCKLIBREQUESTRESPONSE:
+          MinetReceive(myevent.handle,slrr);
+          cerr << slrr << endl;
+          break;
+        case MINET_NONE:
+        default:
+          break;
       }
     }
   }
