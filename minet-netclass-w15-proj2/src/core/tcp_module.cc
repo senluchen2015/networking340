@@ -65,6 +65,8 @@ int main(int argc, char *argv[])
         IPHeader iph=p.FindHeader(Headers::IPHeader);
         TCPHeader tcph=p.FindHeader(Headers::TCPHeader);
 
+        cerr << "received packet " << p << endl;
+
         Connection c;
         // note that this is flipped around because
         // "source" is interepreted as "this machine"
@@ -107,6 +109,7 @@ int main(int argc, char *argv[])
               cerr << "dest IP: " << c.dest << endl;
               char buf[len];
               TCPHeader restcph = TCPHeader(buf, len);
+              synackpack.PushBackHeader(restcph);
               cerr << "initialized tcp header" << endl;
               restcph.SetSourcePort(c.srcport, synackpack);
               restcph.SetDestPort(c.destport, synackpack);
@@ -116,17 +119,32 @@ int main(int argc, char *argv[])
               restcph.SetSeqNum(300, synackpack);
               cerr << "set TCP seqnum" << endl;
               restcph.SetAckNum(seq_number + 1, synackpack);
+              restcph.SetWinSize(14600, synackpack);
               cerr << "set TCP headers " << endl;
               SET_ACK(flags);
               restcph.SetFlags(flags, synackpack);
               cerr << "set TCP flags " << endl;
-              synackpack.PushBackHeader(restcph);
               cerr << "added TCP header to packet" << endl;
               cerr << "Response TCP Packet: IP Header is " << resiph <<" and " << endl;
               cerr << "Response TCP header is " << restcph <<" and " << endl;
               int result = MinetSend(mux, synackpack);
               int secondResult = MinetSend(mux, synackpack);
-              cerr << "sent packet " << endl;
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              MinetSend(mux, synackpack);
+              cerr << "sent packet " << synackpack << endl;
               if (result < 0) {
                 cerr << "Minet Send resulted in error " << endl;
               } else {
