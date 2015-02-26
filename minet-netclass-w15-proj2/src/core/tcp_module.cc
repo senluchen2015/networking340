@@ -102,14 +102,14 @@ int main(int argc, char *argv[])
               resiph.SetDestIP(c.dest);
               resiph.SetSourceIP(c.src);
               resiph.SetProtocol(c.protocol);
+              resiph.SetTotalLength(IP_HEADER_BASE_LENGTH + 20);
               cerr << "set IP headers " << endl;
               synackpack.PushFrontHeader(resiph);
               cerr << "added IP header to packet" << endl;
               cerr << "src IP: " << c.src << endl;
               cerr << "dest IP: " << c.dest << endl;
-              char buf[len];
-              TCPHeader restcph = TCPHeader(buf, len);
-              synackpack.PushBackHeader(restcph);
+              //char buf[len];
+              TCPHeader restcph = TCPHeader();
               cerr << "initialized tcp header" << endl;
               restcph.SetSourcePort(c.srcport, synackpack);
               restcph.SetDestPort(c.destport, synackpack);
@@ -123,27 +123,18 @@ int main(int argc, char *argv[])
               cerr << "set TCP headers " << endl;
               SET_ACK(flags);
               restcph.SetFlags(flags, synackpack);
+              unsigned char hardcode_len = 5;
+              restcph.SetHeaderLen(hardcode_len, synackpack);
+              synackpack.PushBackHeader(restcph);
               cerr << "set TCP flags " << endl;
               cerr << "added TCP header to packet" << endl;
               cerr << "Response TCP Packet: IP Header is " << resiph <<" and " << endl;
               cerr << "Response TCP header is " << restcph <<" and " << endl;
               int result = MinetSend(mux, synackpack);
               int secondResult = MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
-              MinetSend(mux, synackpack);
+              for (int i = 0; i < 10; i++) {
+                MinetSend(mux, synackpack);
+              }
               cerr << "sent packet " << synackpack << endl;
               if (result < 0) {
                 cerr << "Minet Send resulted in error " << endl;
