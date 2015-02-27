@@ -22,9 +22,14 @@ using std::endl;
 using std::cerr;
 using std::string;
 
-void sendSynAck(Connection &, MinetHandle, unsigned int, unsigned int, unsigned int);
-//template<class STATE>void addSynAckMapping(Connection &, unsigned int, unsigned int, unsigned int, ConnectionList<STATE> &);
-
+void sendSynAck(Connection, MinetHandle, unsigned int, unsigned int, unsigned short);
+void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size, ConnectionList<TCPState> &clist);
+void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux);
+void handleAck(ConnectionList<TCPState> &clist, Connection &c);
+Time timeFromNow(double seconds);
+void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, unsigned int seq_number);
+void activeOpen(MinetHandle mux, Connection &c, unsigned int seq_number);
+ 
 int main(int argc, char *argv[])
 {
   MinetHandle mux, sock;
@@ -54,7 +59,8 @@ int main(int argc, char *argv[])
     // if we received an unexpected type of event, print error
     cerr << event << endl;
     if (event.eventtype == MinetEvent::Timeout) {
-      cerr << "There was a timeout" << endl;
+      //cerr << "There was a timeout" << endl;
+      checkForTimedOutConnection(clist, mux);
     }
     if (event.eventtype!=MinetEvent::Dataflow 
         || event.direction!=MinetEvent::IN) {
@@ -90,41 +96,6 @@ int main(int argc, char *argv[])
 
         cerr << "Checksum is " << (tcph.IsCorrectChecksum(p) ? "VALID" : "INVALID");
 
-        if (cs!=clist.end()) {
-          cerr << "connection TCPState state is " << (*cs).state.GetState() << endl;
-          if ((*cs).state.GetState() == LISTEN) {
-            Buffer &buf = p.GetPayload();
-            unsigned char len = 0;
-            unsigned char flags = 0;
-            unsigned int seq_number = 0;
-            size_t buflen = buf.GetSize();
-            tcph.GetHeaderLen(len);
-            tcph.GetFlags(flags);
-            tcph.GetSeqNum(seq_number);
-            cerr << "new seq_number is " << seq_number + 1 << endl;
-            if (IS_SYN(flags)) {
-              cerr << "It's a SYN! Sending SYN ACK" << endl;
-              sendSynAck(c, mux, seq_number, 300, 14600);
-              //addSynAckMapping(c, seq_number, 300, 14600, clist);
-              ConnectionToStateMapping<TCPState> m;
-              m.connection=c;
-              m.state.SetState(SYN_RCVD);
-              m.state.SetLastAcked(seq_number + 1);
-              m.state.SetLastSent(300);
-              m.state.SetSendRwnd(14600);
-              // expire a connection after sending only one SYNACK
-              m.state.SetTimerTries(0);
-              Time currentTime = Time();
-              Time fiveSeconds = Time(5.0);
-              Time timeout;
-              timeradd(&currentTime, &fiveSeconds, &timeout);
-              m.timeout = fiveSeconds;
-              m.bTmrActive = true;
-              clist.push_back(m);
-              cerr << "added new connection to state mapping" << endl;
-            }
-          }
-        }
         Buffer &buf = p.GetPayload();
         unsigned char len = 0;
         unsigned char flags = 0;
@@ -132,7 +103,26 @@ int main(int argc, char *argv[])
         size_t buflen = buf.GetSize();
         tcph.GetHeaderLen(len);
         tcph.GetFlags(flags);
+        tcph.GetSeqNum(seq_number);
 
+        if (cs!=clist.end()) {
+          cerr << "connection TCPState state is " << (*cs).state.GetState() << endl;
+          if ((*cs).state.GetState() == LISTEN) {
+            cerr << "new seq_number is " << seq_number + 1 << endl;
+            if (IS_SYN(flags)) {
+              cerr << "It's a SYN! Sending SYN ACK" << endl;
+              sendSynAck(c, mux, seq_number, 300, 14600);
+              addSynAckMapping(c, seq_number, 300, 14600, clist);
+              cerr << "added new connection to state mapping" << endl;
+            }
+          }
+        }
+        if (IS_ACK(flags)) {
+          cerr << "received an ACK, updating states " << endl;
+          handleAck(clist, c);
+        }
+
+        
         char sample[buflen+1];
         buf.GetData(sample, buflen, 0);
         sample[buflen] = '\0';
@@ -159,32 +149,162 @@ int main(int argc, char *argv[])
           clist.push_back(m);
           cerr << "added accept socket to list of connections \n" << endl;
         }
-        cerr << "Received Socket Request:" << req << endl;
+        if (req.type == CONNECT) {
+          cerr << "Socket request type is CONNECT \n" << endl;
+          // TODO: remove hardcoded seq number
+          unsigned int hardcoded_seq_number = 500;
+          activeOpen(mux, req.connection, hardcoded_seq_number);
+          addActiveOpenConnection(clist, req.connection, hardcoded_seq_number);
+        }
       }
     }
   }
   return 0;
 }
-/*
-void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size, ConnectionList<STATE> &clist) {
+
+Time timeFromNow(double seconds) {
+  Time currentTime = Time();
+  Time nSeconds = Time(seconds);
+  Time timeout;
+  timeradd(&currentTime, &nSeconds, &timeout);
+  return timeout;
+}
+
+void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, unsigned int seq_number) {
+  ConnectionToStateMapping<TCPState> m;
+  m.connection = c;
+  m.state.SetState(SYN_SENT);
+  m.state.SetLastSent(seq_number);
+  // TODO: change hardcoded timer tries value
+  m.state.SetTimerTries(3);
+  m.bTmrActive = true;
+  m.timeout = timeFromNow(5.0);
+  clist.push_front(m);
+}
+
+void activeOpen(MinetHandle mux, Connection &c, unsigned int seq_number) {
+  unsigned char flags = 0;
+  Packet activeOpenPacket = Packet();
+  IPHeader activeOpenIph = IPHeader();
+  activeOpenIph.SetDestIP(c.dest);
+  activeOpenIph.SetSourceIP(c.src);
+  activeOpenIph.SetProtocol(c.protocol);
+  activeOpenIph.SetTotalLength(IP_HEADER_BASE_LENGTH + 20);
+  cerr << "set IP headers " << endl;
+  activeOpenPacket.PushFrontHeader(activeOpenIph);
+  cerr << "added IP header to packet" << endl;
+  cerr << "src IP: " << c.src << endl;
+  cerr << "dest IP: " << c.dest << endl;
+  //char buf[len];
+  TCPHeader activeOpenTcph = TCPHeader();
+  cerr << "initialized tcp header" << endl;
+  activeOpenTcph.SetSourcePort(c.srcport, activeOpenPacket);
+  activeOpenTcph.SetDestPort(c.destport, activeOpenPacket);
+  cerr << "set TCP ports: destport " << endl;
+  cerr << "src port: " << c.srcport << endl;
+  cerr << "dest port: " << c.destport << endl;
+  activeOpenTcph.SetSeqNum(seq_number, activeOpenPacket);
+  cerr << "set TCP seqnum" << seq_number << " + 1" << endl;
+  activeOpenTcph.SetAckNum(0, activeOpenPacket);
+  // TODO: remove hardcoded win size
+  activeOpenTcph.SetWinSize(10000, activeOpenPacket);
+  cerr << "set TCP headers " << endl;
+  SET_SYN(flags);
+  activeOpenTcph.SetFlags(flags, activeOpenPacket);
+  // TODO: change hardcoded length to reflect whether or not there are options
+  unsigned char hardcode_len = 5;
+  activeOpenTcph.SetHeaderLen(hardcode_len, activeOpenPacket);
+  activeOpenPacket.PushBackHeader(activeOpenTcph);
+  cerr << "set TCP flags " << endl;
+  cerr << "added TCP header to packet" << endl;
+  cerr << "Response TCP Packet: IP Header is " << activeOpenIph <<" and " << endl;
+  cerr << "Response TCP header is " << activeOpenTcph <<" and " << endl;
+  int result = MinetSend(mux, activeOpenPacket);
+  int secondResult = MinetSend(mux, activeOpenPacket);
+}
+
+void handleAck(ConnectionList<TCPState> &clist, Connection &c) {
+  Time currentTime = Time();
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  if (cs != clist.end()) {
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    // there is a connection for which to handle ACK
+    switch(mapping.state.stateOfcnx) {
+      case SYN_RCVD:
+        // change state to established and deactivate timer
+        mapping.state.stateOfcnx = ESTABLISHED;
+        mapping.bTmrActive = false;
+        clist.erase(cs);
+        clist.push_front(mapping);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux) {
+  Time currentTime = Time();
+  ConnectionList<TCPState>::iterator i = clist.FindEarliest();
+  if (clist.empty()) {
+    cerr << "clist is empty " << endl;
+  }
+  //cerr << "size of clist is " << clist.size();
+  if (i != clist.end()) {
+    //cerr << "found earliest time" << endl;
+    ConnectionToStateMapping<TCPState> mapping = *i;
+    if (mapping.timeout <= currentTime) {
+      cerr << "handling a timed out connection " << endl;
+      // handle timed out connection
+      if (mapping.state.tmrTries == 0) {
+        cerr << "deleting timed out connection " << endl;
+        // delete this connection from the list
+        clist.erase(i);
+      } else {
+        mapping.state.tmrTries--;
+        Time fiveSeconds = Time(5.0);
+        Time timeout;
+        timeradd(&currentTime, &fiveSeconds, &timeout);
+        switch(mapping.state.stateOfcnx) {
+          case SYN_RCVD:
+            // server trying to resend SYNACK
+            clist.erase(i);
+            mapping.timeout = timeout;
+            clist.push_front(mapping);
+            sendSynAck(mapping.connection, mux, mapping.state.last_recvd, mapping.state.last_sent, mapping.state.rwnd);
+            cerr << "resending synack " << endl;
+            break;
+          default:
+            break;
+        }
+      }
+      checkForTimedOutConnection(clist, mux);
+    }
+  }
+}
+
+void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size, ConnectionList<TCPState> &clist) {
   ConnectionToStateMapping<TCPState> m;
   m.connection=c;
   m.state.SetState(SYN_RCVD);
-  m.state.SetLastAcked(req_seq_number + 1);
+  m.state.SetLastRecvd(req_seq_number);
   m.state.SetLastSent(res_seq_number);
+  // TODO: figure out if rwnd is OUR receive window or THEIRS
+  // should be THEIRS based on source code
   m.state.SetSendRwnd(win_size);
   // expire a connection after sending only one SYNACK
-  m.state.SetTimerTries(0);
+  m.state.SetTimerTries(3);
   Time currentTime = Time();
   Time fiveSeconds = Time(5.0);
   Time timeout;
   timeradd(&currentTime, &fiveSeconds, &timeout);
+  cerr << "new timeout time is " << timeout << endl;
   m.timeout = timeout;
   m.bTmrActive = true;
-  clist.push_back(m);
+  clist.push_front(m);
 }
-*/
-void sendSynAck(Connection &c, MinetHandle mux, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size) {
+
+void sendSynAck(Connection c, MinetHandle mux, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size) {
   unsigned char flags = 0;
   Packet synackpack = Packet();
   IPHeader resiph = IPHeader();
@@ -206,7 +326,7 @@ void sendSynAck(Connection &c, MinetHandle mux, unsigned int req_seq_number, uns
   cerr << "src port: " << c.srcport << endl;
   cerr << "dest port: " << c.destport << endl;
   restcph.SetSeqNum(res_seq_number, synackpack);
-  cerr << "set TCP seqnum" << endl;
+  cerr << "set TCP seqnum" << req_seq_number << " + 1" << endl;
   restcph.SetAckNum(req_seq_number + 1, synackpack);
   restcph.SetWinSize(win_size, synackpack);
   cerr << "set TCP headers " << endl;
@@ -222,9 +342,9 @@ void sendSynAck(Connection &c, MinetHandle mux, unsigned int req_seq_number, uns
   cerr << "Response TCP header is " << restcph <<" and " << endl;
   int result = MinetSend(mux, synackpack);
   int secondResult = MinetSend(mux, synackpack);
-  for (int i = 0; i < 10; i++) {
+  /*for (int i = 0; i < 10; i++) {
     MinetSend(mux, synackpack);
-  }
+  }*/
   cerr << "sent packet " << synackpack << endl;
   if (result < 0) {
     cerr << "Minet Send resulted in error " << endl;
