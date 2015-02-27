@@ -25,10 +25,14 @@ using std::string;
 void sendSynAck(Connection, MinetHandle, unsigned int, unsigned int, unsigned short);
 void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size, ConnectionList<TCPState> &clist);
 void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux);
-void handleAck(ConnectionList<TCPState> &clist, Connection &c);
+void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen, TCPHeader tcph, MinetHandle mux);
 Time timeFromNow(double seconds);
 void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, unsigned int seq_number);
 void activeOpen(MinetHandle mux, Connection &c, unsigned int seq_number);
+void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsigned int seq_number, unsigned short win_size);
+void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c, unsigned int req_seq_number, unsigned int req_ack_number, unsigned int res_seq_number, unsigned int res_ack_number, size_t datalen, unsigned short rwnd, unsigned int newstate);
+void receiveData(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen);
+IPHeader setIPHeaders(Connection &c);
  
 int main(int argc, char *argv[])
 {
@@ -119,7 +123,7 @@ int main(int argc, char *argv[])
         }
         if (IS_ACK(flags)) {
           cerr << "received an ACK, updating states " << endl;
-          handleAck(clist, c);
+          handleAck(clist, c, buf, buflen, tcph, mux);
         }
 
         
@@ -223,24 +227,111 @@ void activeOpen(MinetHandle mux, Connection &c, unsigned int seq_number) {
   int secondResult = MinetSend(mux, activeOpenPacket);
 }
 
-void handleAck(ConnectionList<TCPState> &clist, Connection &c) {
+void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen, TCPHeader tcph, MinetHandle mux) {
   Time currentTime = Time();
   ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  unsigned int req_seq_number = 0;
+  unsigned int req_ack_number = 0;
+  tcph.GetSeqNum(req_seq_number);
+  tcph.GetAckNum(req_ack_number);
   if (cs != clist.end()) {
     ConnectionToStateMapping<TCPState> mapping = *cs;
     // there is a connection for which to handle ACK
     switch(mapping.state.stateOfcnx) {
       case SYN_RCVD:
         // change state to established and deactivate timer
-        mapping.state.stateOfcnx = ESTABLISHED;
-        mapping.bTmrActive = false;
-        clist.erase(cs);
-        clist.push_front(mapping);
+        if (req_ack_number == mapping.state.last_sent + 1) {
+          mapping.state.stateOfcnx = ESTABLISHED;
+          mapping.state.SetLastAcked(req_ack_number);
+          mapping.bTmrActive = false;
+          clist.erase(cs);
+          clist.push_front(mapping);
+        }
+        break;
+      case ESTABLISHED:
+        // check if the segment contains data
+        if (buflen > 0) {
+          // check if the segment # is equal to last received
+          if (req_seq_number == mapping.state.GetLastRecvd()) {
+            // segment received is directly after last one; send an ACK
+            // of seq_number + data length; make sure ack_number is mod 2^32
+            unsigned int res_ack_number = (req_seq_number + buflen) & 0xffffffff;
+            // check that the ack is equal to our last sent (last packet's
+            // seq_number + last packet's size)
+            if (req_ack_number == mapping.state.GetLastSent()) {
+              // seq_number is simply our last sent
+              unsigned int res_seq_number = mapping.state.GetLastSent();
+              // window size is equal to receive buffer's size
+              sendAckPack(c, mux, res_ack_number, res_seq_number, mapping.state.RecvBuffer.GetSize() - 1);
+              // TODO: adjust for sending data - right now datalen is 1 due to 
+              // not sending data
+              updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 1, mapping.state.GetRwnd(), ESTABLISHED);
+              receiveData(clist, c, buf, buflen);
+            }
+          }
+        }
         break;
       default:
         break;
     }
   }
+}
+
+IPHeader setIPHeaders(Connection &c) {
+  IPHeader resiph = IPHeader();
+  resiph.SetDestIP(c.dest);
+  resiph.SetSourceIP(c.src);
+  resiph.SetProtocol(c.protocol);
+  resiph.SetTotalLength(IP_HEADER_BASE_LENGTH + 20);
+  return resiph;
+}
+
+void receiveData(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen) {
+  // right now, just replace the RecvBuffer contents of the TCPState
+  // with the new buffer and print it out
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  if (cs != clist.end()) {
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    mapping.state.RecvBuffer.Clear();
+    mapping.state.RecvBuffer.AddFront(buf);
+    clist.erase(cs);
+    clist.push_front(mapping);
+  }
+}
+
+void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c, unsigned int req_seq_number, unsigned int req_ack_number, unsigned int res_seq_number, unsigned int res_ack_number, size_t datalen, unsigned short rwnd, unsigned int newstate) {
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  if (cs != clist.end()) {
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    mapping.state.SetState(newstate);
+    mapping.state.SetLastRecvd(res_ack_number);
+    mapping.state.SetLastSent(res_seq_number + datalen);
+    mapping.state.SetLastAcked(req_ack_number);
+    mapping.state.SetSendRwnd(rwnd);
+    clist.erase(cs);
+    clist.push_front(mapping);
+  }
+}
+
+void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsigned int seq_number, unsigned short win_size) {
+  Packet ackpack = Packet();
+  IPHeader resiph = setIPHeaders(c);
+  ackpack.PushFrontHeader(resiph);
+  TCPHeader restcph = TCPHeader();
+  restcph.SetSourcePort(c.srcport, ackpack);
+  restcph.SetDestPort(c.destport, ackpack);
+  restcph.SetSeqNum(seq_number, ackpack);
+  restcph.SetAckNum(ack_number, ackpack);
+  restcph.SetWinSize(win_size, ackpack);
+  unsigned char flags = 0;
+  SET_ACK(flags);
+  restcph.SetFlags(flags, ackpack);
+  unsigned char hardcode_len = 5;
+  restcph.SetHeaderLen(hardcode_len, ackpack);
+  ackpack.PushBackHeader(restcph);
+  cerr << "Response TCP header is " << restcph <<" and " << endl;
+  int result = MinetSend(mux, ackpack);
+  int secondResult = MinetSend(mux, ackpack);
 }
 
 void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux) {
@@ -288,7 +379,8 @@ void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int r
   m.connection=c;
   m.state.SetState(SYN_RCVD);
   m.state.SetLastRecvd(req_seq_number);
-  m.state.SetLastSent(res_seq_number);
+  // set this to the next ACK number we expect
+  m.state.SetLastSent(res_seq_number + 1);
   // TODO: figure out if rwnd is OUR receive window or THEIRS
   // should be THEIRS based on source code
   m.state.SetSendRwnd(win_size);
@@ -307,11 +399,7 @@ void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int r
 void sendSynAck(Connection c, MinetHandle mux, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size) {
   unsigned char flags = 0;
   Packet synackpack = Packet();
-  IPHeader resiph = IPHeader();
-  resiph.SetDestIP(c.dest);
-  resiph.SetSourceIP(c.src);
-  resiph.SetProtocol(c.protocol);
-  resiph.SetTotalLength(IP_HEADER_BASE_LENGTH + 20);
+  IPHeader resiph = setIPHeaders(c);
   cerr << "set IP headers " << endl;
   synackpack.PushFrontHeader(resiph);
   cerr << "added IP header to packet" << endl;
