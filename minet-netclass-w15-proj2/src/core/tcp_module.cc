@@ -242,10 +242,13 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
   if (cs != clist.end()) {
     ConnectionToStateMapping<TCPState> mapping = *cs;
     // there is a connection for which to handle ACK
+    cerr << " testing state of connection" <<endl;
     switch(mapping.state.stateOfcnx) {
       case SYN_RCVD:
         // change state to established and deactivate timer
-        if (req_ack_number == mapping.state.last_sent + 1) {
+          cerr << "In SYN_RCVD" <<endl;
+        if (req_ack_number == mapping.state.last_sent) {
+          cerr << "In SYN_RCVD changing state" <<endl;
           mapping.state.stateOfcnx = ESTABLISHED;
           mapping.state.SetLastAcked(req_ack_number);
           mapping.bTmrActive = false;
@@ -255,22 +258,32 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
         break;
       case ESTABLISHED:
         // check if the segment contains data
+        cerr << "In ESTABLISHED \n" << endl;
         if (buflen > 0) {
+          cerr << "Established case with buflen > 0 " << endl;
           // check if the segment # is equal to last received
+          cerr << "req_seq_number: "<< req_seq_number << endl;
+          cerr << "GetLastRecvd: "<< mapping.state.GetLastRecvd() << endl;
           if (req_seq_number == mapping.state.GetLastRecvd()) {
             // segment received is directly after last one; send an ACK
             // of seq_number + data length; make sure ack_number is mod 2^32
+            cerr << "Established case with seq_number == last_recved" << endl;
             unsigned int res_ack_number = (req_seq_number + buflen) & 0xffffffff;
+            cerr << res_ack_number << endl;
+
             // check that the ack is equal to our last sent (last packet's
             // seq_number + last packet's size)
             if (req_ack_number == mapping.state.GetLastSent()) {
               // seq_number is simply our last sent
               unsigned int res_seq_number = mapping.state.GetLastSent();
               // window size is equal to receive buffer's size
+              
+              cerr << "sending ACK back in Established" <<endl;
               sendAckPack(c, mux, res_ack_number, res_seq_number, mapping.state.RecvBuffer.GetSize() - 1);
               // TODO: adjust for sending data - right now datalen is 1 due to 
               // not sending data
               updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 1, mapping.state.GetRwnd(), ESTABLISHED);
+              
               receiveData(clist, c, buf, buflen);
             }
           }
@@ -308,6 +321,10 @@ void receiveData(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, si
     ConnectionToStateMapping<TCPState> mapping = *cs;
     mapping.state.RecvBuffer.Clear();
     mapping.state.RecvBuffer.AddFront(buf);
+    char dataBuf[buflen + 1];
+    buf.GetData(dataBuf, buflen, 0);
+    dataBuf[buflen] = '\0';
+    cerr << "Data: " << dataBuf << endl;
     clist.erase(cs);
     clist.push_front(mapping);
   }
@@ -400,7 +417,7 @@ void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int r
   ConnectionToStateMapping<TCPState> m;
   m.connection=c;
   m.state.SetState(SYN_RCVD);
-  m.state.SetLastRecvd(req_seq_number);
+  m.state.SetLastRecvd(req_seq_number + 1);
   // set this to the next ACK number we expect
   m.state.SetLastSent(res_seq_number + 1);
   // TODO: figure out if rwnd is OUR receive window or THEIRS
@@ -451,6 +468,7 @@ void sendSynAck(Connection c, MinetHandle mux, unsigned int req_seq_number, unsi
   cerr << "Response TCP Packet: IP Header is " << resiph <<" and " << endl;
   cerr << "Response TCP header is " << restcph <<" and " << endl;
   int result = MinetSend(mux, synackpack);
+  sleep(1);
   int secondResult = MinetSend(mux, synackpack);
   /*for (int i = 0; i < 10; i++) {
     MinetSend(mux, synackpack);
