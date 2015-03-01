@@ -30,7 +30,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
 Time timeFromNow(double seconds);
 void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, unsigned int seq_number);
 void activeOpen(MinetHandle mux, Connection &c, unsigned int seq_number);
-void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsigned int seq_number, unsigned short win_size);
+void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsigned int seq_number, unsigned short win_size, Buffer &buf);
 void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c, unsigned int req_seq_number, unsigned int req_ack_number, unsigned int res_seq_number, unsigned int res_ack_number, size_t datalen, unsigned short rwnd, unsigned int newstate);
 void updateReceiveBuffer(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen);
 void sendConnectSocketResponse(SockRequestResponse &req, MinetHandle sock);
@@ -40,7 +40,7 @@ void sendNewConnectionToSocket(MinetHandle sock, Connection &c);
 IPHeader setIPHeaders(Connection &c, unsigned int tcp_header_size, unsigned int data_length);
 void handleSocketStatus(ConnectionList<TCPState> &clist, SockRequestResponse &status);
 void sendDataToSocket(ConnectionList<TCPState> &clist, Connection &c, MinetHandle sock);
-void sendDataFromSocket(SockRequestResponse &req, ConnectionList<TCPState> &clist, MinetHandle mux, MinetHandle sock);
+void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHandle mux, MinetHandle sock, Buffer &buf);
 void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, MinetHandle mux);
 void updateSendBuffer(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen);
  
@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
           handleSocketStatus(clist, req);
         }
         if (req.type == WRITE) {
-          sendDataFromSocket(req, clist, mux, sock);
+          sendDataFromSocket(req.connection, clist, mux, sock, req.data);
         }
       }
     }
@@ -181,22 +181,28 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-void sendDataFromSocket(SockRequestResponse &req, ConnectionList<TCPState> &clist, MinetHandle mux, MinetHandle sock) {
-  ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHandle mux, MinetHandle sock, Buffer &buf) {
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
   if (cs != clist.end()) {
     ConnectionToStateMapping<TCPState> mapping = *cs;
     if (mapping.state.GetState() == ESTABLISHED) {
-      unsigned int bytes = MIN_MACRO(TCP_MAXIMUM_SEGMENT_SIZE, req.data.GetSize());
-      bytes = MIN_MACRO(bytes, mapping.state.rwnd);
-      Buffer &buf = req.data.ExtractFront(bytes);
+      unsigned offsetlastsent = 0;
+      size_t bytesize = 0;
+      unsigned bytes = buf.GetSize();
+      mapping.state.SendPacketPayload(offsetlastsent, bytesize, bytes);
+      //unsigned int bytes = MIN_MACRO(TCP_MAXIMUM_SEGMENT_SIZE, buf.GetSize());
+      //bytes = MIN_MACRO(bytes, mapping.state.rwnd);
+      //Buffer &buf = req.data.ExtractFront(bytes);
       Packet p(buf);
-      IPHeader iph = setIPHeaders(req.connection, 20, bytes);
+      IPHeader iph = setIPHeaders(c, 20, bytesize);
       p.PushFrontHeader(iph);
       TCPHeader tcph;
-      tcph.SetSourcePort(req.connection.srcport,p);
-      tcph.SetDestPort(req.connection.destport,p);
-      tcph.SetHeaderLen(20 + bytes, p);
-      unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.RecvBuffer.GetSize();
+      tcph.SetSourcePort(c.srcport,p);
+      tcph.SetDestPort(c.destport,p);
+      unsigned char hardcode_len = 5;
+      tcph.SetHeaderLen(hardcode_len, p);
+      // not sure if the +1 is good here
+      unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.SendBuffer.GetSize();
       tcph.SetSeqNum(res_seq_number, p);
       unsigned int res_ack_number = mapping.state.GetLastRecvd();
       tcph.SetAckNum(res_ack_number, p);
@@ -208,14 +214,16 @@ void sendDataFromSocket(SockRequestResponse &req, ConnectionList<TCPState> &clis
       tcph.SetFlags(flags, p);
       p.PushBackHeader(tcph);
       int results = MinetSend(mux,p);
+      cerr << "sending packet: " << p << endl;
+      cerr << "sending tcp header: " << tcph << endl;
       // giving 0 for req_seq_number, because it is not used
-      updateConnectionStateMapping(clist, req.connection, 0, mapping.state.GetLastAcked(), res_seq_number, res_ack_number, bytes, mapping.state.rwnd, ESTABLISHED);
-      updateSendBuffer(clist, req.connection, buf, bytes);
+      updateConnectionStateMapping(clist, c, 0, mapping.state.GetLastAcked(), res_seq_number, res_ack_number, bytesize, mapping.state.rwnd, SEND_DATA);
+      updateSendBuffer(clist, c, buf, bytesize);
       // now send a status back to the socket
       SockRequestResponse res;
       res.type = STATUS;
-      res.connection = req.connection;
-      res.bytes = bytes;
+      res.connection = c;
+      res.bytes = bytesize;
       if (results < 0) {
         res.error = results;
       } else {
@@ -375,10 +383,21 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           sendNewConnectionToSocket(sock, c);
         }
         break;
+      case SEND_DATA:
+      {
+        cerr << "IN SEND_DATA" << endl;
+        // update the ack number of the connection state
+        unsigned int res_seq_number = mapping.state.GetLastSent();
+        unsigned int res_ack_number = mapping.state.GetLastRecvd();
+        updateConnectionStateMapping(clist, c, mapping.state.GetLastRecvd(), req_ack_number, res_seq_number, res_ack_number, 0, rwnd, SEND_DATA);
+        cs = clist.FindMatching(c);
+        mapping = *cs;
+        sendDataFromSocket(c, clist, mux, sock, mapping.state.SendBuffer);
+      }
       case ESTABLISHED:
         // check if the segment contains data
         cerr << "In ESTABLISHED \n" << endl;
-        //if (buflen > 0) {
+        if (buflen > 0) {
           //cerr << "Established case with buflen > 0 " << endl;
           // check if the segment # is equal to last received
           cerr << "req_seq_number: "<< req_seq_number << endl;
@@ -394,36 +413,45 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
 
             // check that the ack is equal to our last sent (last packet's
             // seq_number + last packet's size)
-            //if (req_ack_number == mapping.state.GetLastSent()) {
+            cerr << "req_ack_number: " << req_ack_number << endl;
+            cerr << "GetLastSent: " << mapping.state.GetLastSent() << endl;;
+            if (req_ack_number == mapping.state.GetLastSent()) {
               // seq_number is simply our last sent
               unsigned int res_seq_number = mapping.state.GetLastSent();
               // window size is equal to receive buffer's size
               
               cerr << "sending ACK back in Established" <<endl;
-              sendAckPack(c, mux, res_ack_number, res_seq_number, 10000);
+              Buffer emptyBuf = Buffer();
+              sendAckPack(c, mux, res_ack_number, res_seq_number, 10000, emptyBuf);
               // TODO: adjust for sending data - right now datalen is 0 due to 
               // not sending data
-              updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 0, rwnd, ESTABLISHED);
+              updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 0, rwnd, mapping.state.GetState());
               updateReceiveBuffer(clist, c, buf, buflen);
               sendDataToSocket(clist, c, sock);
-            //} 
+            } 
           } else {
             // if out of order, just send back an ACK for the last received
             unsigned int res_seq_number = mapping.state.GetLastSent();
             unsigned int res_ack_number = mapping.state.GetLastRecvd();
-            sendAckPack(c, mux, res_ack_number, res_seq_number, 10000);
+            Buffer emptyBuf = Buffer();
+            sendAckPack(c, mux, res_ack_number, res_seq_number, 10000, emptyBuf);
           }
-        //}
+        }
         break;
       case SYN_SENT:
         if (IS_SYN(flags)){
           cerr << "IS_SYN flag detected, SYN ACK received" <<endl;
           unsigned int res_ack_number = req_seq_number + 1;
-          unsigned int res_seq_number = mapping.state.GetLastSent(); 
-          sendAckPack(c, mux, res_ack_number, res_seq_number, 10000);
-          updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 1, rwnd, ESTABLISHED);
-          // using the same response to socket layer as in ACCEPT incoming connection 
-          sendNewConnectionToSocket(sock, c);
+          cerr << "mapping last sent: " << mapping.state.GetLastSent() << endl;
+          cerr << "req_seq_number: " << req_seq_number << endl;
+          if (req_ack_number == mapping.state.GetLastSent() + 1) {
+            unsigned int res_seq_number = req_ack_number + 1;
+            Buffer emptyBuf = Buffer();
+            sendAckPack(c, mux, res_ack_number, res_seq_number, 10000, emptyBuf);
+            updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number + 1, res_seq_number, res_ack_number, 0, rwnd, ESTABLISHED);
+            // using the same response to socket layer as in ACCEPT incoming connection 
+            sendNewConnectionToSocket(sock, c);
+          }
         }    
         break;
       default:
@@ -508,10 +536,14 @@ void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c
   }
 }
 
-void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsigned int seq_number, unsigned short win_size) {
-  Packet ackpack = Packet();
-  // assumes that there is no data to send in return
-  IPHeader resiph = setIPHeaders(c, 20, 0);
+void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsigned int seq_number, unsigned short win_size, Buffer &buf) {
+  Packet ackpack;
+  if (buf.GetSize() > 0) {
+    ackpack = Packet(buf);
+  } else {
+    ackpack = Packet();
+  }
+  IPHeader resiph = setIPHeaders(c, 20, buf.GetSize());
   ackpack.PushFrontHeader(resiph);
   TCPHeader restcph = TCPHeader();
   restcph.SetSourcePort(c.srcport, ackpack);
@@ -565,7 +597,8 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
             activeOpen(mux, mapping.connection, mapping.state.GetLastSent() - 1);
             cerr << "resending syn " << endl; 
             break;
-          case ESTABLISHED:
+          case SEND_DATA:
+            cerr << "timed out - resending last N packets" << endl;
             sendLastN(clist, mapping.connection, mapping.state.SendBuffer, mux);
             break;
           default:
@@ -581,15 +614,20 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
   ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
   if (cs != clist.end()) {
     ConnectionToStateMapping<TCPState> mapping = *cs;
-    unsigned int bytes = MIN_MACRO(TCP_MAXIMUM_SEGMENT_SIZE, to_send.GetSize());
-    bytes = MIN_MACRO(bytes, mapping.state.rwnd);
-    Packet p(to_send.ExtractFront(bytes));
-    IPHeader iph = setIPHeaders(mapping.connection, 20, bytes);
+    unsigned offsetlastsent = 0;
+    size_t bytesize = 0;
+    unsigned bytes = to_send.GetSize();
+    mapping.state.SendPacketPayload(offsetlastsent, bytesize, bytes);
+    //unsigned int bytes = MIN_MACRO(TCP_MAXIMUM_SEGMENT_SIZE, to_send.GetSize());
+    //bytes = MIN_MACRO(bytes, mapping.state.rwnd);
+    Packet p(to_send.ExtractFront(bytesize));
+    IPHeader iph = setIPHeaders(mapping.connection, 20, bytesize);
     p.PushFrontHeader(iph);
     TCPHeader tcph;
     tcph.SetSourcePort(mapping.connection.srcport,p);
     tcph.SetDestPort(mapping.connection.destport,p);
-    tcph.SetHeaderLen(20 + bytes, p);
+    unsigned char hard_coded_headerlen = 5;
+    tcph.SetHeaderLen(hard_coded_headerlen, p);
     unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.RecvBuffer.GetSize();
     tcph.SetSeqNum(res_seq_number, p);
     unsigned int res_ack_number = mapping.state.GetLastRecvd();
@@ -602,7 +640,8 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
     tcph.SetFlags(flags, p);
     p.PushBackHeader(tcph);
     int results = MinetSend(mux,p);
-    if (to_send.GetSize() > 0) {
+    if (to_send.GetSize() > 0 && bytes > 0) {
+      cerr << "recursively calling sendLastN" << endl;
       sendLastN(clist, c, to_send, mux);
     }
   }
