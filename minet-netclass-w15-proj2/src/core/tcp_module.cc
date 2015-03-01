@@ -25,14 +25,21 @@ using std::string;
 void sendSynAck(Connection, MinetHandle, unsigned int, unsigned int, unsigned short);
 void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size, ConnectionList<TCPState> &clist);
 void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux);
-void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen, TCPHeader tcph, MinetHandle mux);
+void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen, TCPHeader tcph, MinetHandle mux, MinetHandle sock);
+
 Time timeFromNow(double seconds);
 void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, unsigned int seq_number);
 void activeOpen(MinetHandle mux, Connection &c, unsigned int seq_number);
 void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsigned int seq_number, unsigned short win_size);
 void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c, unsigned int req_seq_number, unsigned int req_ack_number, unsigned int res_seq_number, unsigned int res_ack_number, size_t datalen, unsigned short rwnd, unsigned int newstate);
 void receiveData(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen);
+void sendConnectSocketResponse(SockRequestResponse &req, MinetHandle sock);
+void sendZeroErrorStatus(MinetHandle sock);
+void addAcceptSocketConnection(ConnectionList<TCPState> &clist, SockRequestResponse &req);
+void sendNewConnectionToSocket(MinetHandle sock, Connection &c);
 IPHeader setIPHeaders(Connection &c);
+void handleSocketStatus(ConnectionList<TCPState> &clist, SockRequestResponse &status);
+void sendDataToSocket(ConnectionList<TCPState> &clist, Connection &c, MinetHandle sock);
  
 int main(int argc, char *argv[])
 {
@@ -59,7 +66,7 @@ int main(int argc, char *argv[])
 
   ConnectionList<TCPState> clist;
 
-  while (MinetGetNextEvent(event, 5.0)==0) {
+  while (MinetGetNextEvent(event, 1.0)==0) {
     // if we received an unexpected type of event, print error
     //cerr << event << endl;
     if (event.eventtype == MinetEvent::Timeout) {
@@ -123,7 +130,7 @@ int main(int argc, char *argv[])
         }
         if (IS_ACK(flags)) {
           cerr << "received an ACK, updating states " << endl;
-          handleAck(clist, c, buf, buflen, tcph, mux);
+          handleAck(clist, c, buf, buflen, tcph, mux, sock);
         }
 
         
@@ -142,16 +149,9 @@ int main(int argc, char *argv[])
         cerr << "req is " << req << endl;
         if (req.type == ACCEPT) {
           cerr << "Socket request type is ACCEPT \n" << endl;
-          ConnectionToStateMapping<TCPState> m;
-          m.connection=req.connection;
-          m.state.SetState(LISTEN);
-          // remove any old accept that might be there.
-          ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
-          if (cs!=clist.end()) {
-            clist.erase(cs);
-          }
-          clist.push_back(m);
-          cerr << "added accept socket to list of connections \n" << endl;
+          addAcceptSocketConnection(clist, req);
+          // Sending the response back to the socket
+          sendZeroErrorStatus(sock);
         }
         if (req.type == CONNECT) {
           cerr << "Socket request type is CONNECT \n" << endl;
@@ -159,11 +159,60 @@ int main(int argc, char *argv[])
           unsigned int hardcoded_seq_number = 500;
           activeOpen(mux, req.connection, hardcoded_seq_number);
           addActiveOpenConnection(clist, req.connection, hardcoded_seq_number);
+          sendConnectSocketResponse(req, sock);
+        }
+        if (req.type == FORWARD) {
+          sendZeroErrorStatus(sock);
+        }
+        if (req.type == STATUS) {
+          handleSocketStatus(clist, req);
         }
       }
     }
   }
   return 0;
+}
+
+void handleSocketStatus(ConnectionList<TCPState> &clist, SockRequestResponse &status) {
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(status.connection);
+  if (cs != clist.end()) {
+    // delete the number of bytes from the send buffer that the socket received
+    // what if multiple packets arrive and we write multiple times before STATUS
+    // is received?
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    cerr << "removing bytes: " << status.bytes << endl;
+    mapping.state.RecvBuffer.ExtractFront(status.bytes);
+    clist.erase(cs);
+    clist.push_front(mapping);
+  }
+}
+
+void sendConnectSocketResponse(SockRequestResponse &req, MinetHandle sock) {
+  SockRequestResponse res;
+  res.type = STATUS;
+  res.connection = req.connection;
+  res.error = EOK;
+  MinetSend(sock, res);
+}
+
+void sendZeroErrorStatus(MinetHandle sock) {
+  SockRequestResponse res;
+  res.type = STATUS;
+  res.error = EOK;
+  MinetSend(sock, res);
+}
+
+void addAcceptSocketConnection(ConnectionList<TCPState> &clist, SockRequestResponse &req) {
+  ConnectionToStateMapping<TCPState> m;
+  m.connection=req.connection;
+  m.state.SetState(LISTEN);
+  // remove any old accept that might be there.
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+  if (cs!=clist.end()) {
+    clist.erase(cs);
+  }
+  clist.push_back(m);
+  cerr << "added accept socket to list of connections \n" << endl;
 }
 
 Time timeFromNow(double seconds) {
@@ -181,7 +230,7 @@ void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, uns
   // convention assume last sent is the seq number + the size of the buf or +1 in Syn case
   m.state.SetLastSent(seq_number + 1);
   // TODO: change hardcoded timer tries value
-  m.state.SetTimerTries(3);
+  m.state.SetTimerTries(500);
   m.bTmrActive = true;
   m.timeout = timeFromNow(5.0);
   clist.push_front(m);
@@ -229,7 +278,7 @@ void activeOpen(MinetHandle mux, Connection &c, unsigned int seq_number) {
   int secondResult = MinetSend(mux, activeOpenPacket);
 }
 
-void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen, TCPHeader tcph, MinetHandle mux) {
+void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen, TCPHeader tcph, MinetHandle mux, MinetHandle sock) {
   Time currentTime = Time();
   ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
   unsigned int req_seq_number = 0;
@@ -254,6 +303,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           mapping.bTmrActive = false;
           clist.erase(cs);
           clist.push_front(mapping);
+          sendNewConnectionToSocket(sock, c);
         }
         break;
       case ESTABLISHED:
@@ -264,10 +314,12 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           // check if the segment # is equal to last received
           cerr << "req_seq_number: "<< req_seq_number << endl;
           cerr << "GetLastRecvd: "<< mapping.state.GetLastRecvd() << endl;
+          // if the packet is in order, continue
           if (req_seq_number == mapping.state.GetLastRecvd()) {
             // segment received is directly after last one; send an ACK
             // of seq_number + data length; make sure ack_number is mod 2^32
             cerr << "Established case with seq_number == last_recved" << endl;
+            cerr << "buffer contents: " << buf << endl;
             unsigned int res_ack_number = (req_seq_number + buflen) & 0xffffffff;
             cerr << res_ack_number << endl;
 
@@ -279,13 +331,18 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
               // window size is equal to receive buffer's size
               
               cerr << "sending ACK back in Established" <<endl;
-              sendAckPack(c, mux, res_ack_number, res_seq_number, mapping.state.RecvBuffer.GetSize() - 1);
-              // TODO: adjust for sending data - right now datalen is 1 due to 
+              sendAckPack(c, mux, res_ack_number, res_seq_number, mapping.state.GetRwnd());
+              // TODO: adjust for sending data - right now datalen is 0 due to 
               // not sending data
-              updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 1, mapping.state.GetRwnd(), ESTABLISHED);
-              
+              updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 0, mapping.state.GetRwnd(), ESTABLISHED);
               receiveData(clist, c, buf, buflen);
-            }
+              sendDataToSocket(clist, c, sock);
+            } 
+          } else {
+            // if out of order, just send back an ACK for the last received
+            unsigned int res_seq_number = mapping.state.GetLastSent();
+            unsigned int res_ack_number = mapping.state.GetLastRecvd();
+            sendAckPack(c, mux, res_ack_number, res_seq_number, mapping.state.GetRwnd());
           }
         }
         break;
@@ -296,11 +353,28 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           unsigned int res_seq_number = mapping.state.GetLastSent(); 
           sendAckPack(c, mux, res_ack_number, res_seq_number, mapping.state.RecvBuffer.GetSize() - 1); 
           updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 1, mapping.state.GetRwnd(), ESTABLISHED);
+          // using the same response to socket layer as in ACCEPT incoming connection 
+          sendNewConnectionToSocket(sock, c);
         }    
         break;
       default:
         break;
     }
+  }
+}
+
+void sendNewConnectionToSocket(MinetHandle sock, Connection &c) {
+  SockRequestResponse res;
+  res.connection = c; 
+  res.type = WRITE;
+  res.bytes = 0;
+  res.error = EOK;
+  int result = MinetSend(sock, res);
+  cerr << "sent new connection to socket: " << res << endl;
+  if (result < 0) {
+    cerr << "an error occurred during sending socket new connection " << endl;
+  } else {
+    cerr << "sending new socket connection successful " << endl;
   }
 }
 
@@ -319,14 +393,33 @@ void receiveData(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, si
   ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
   if (cs != clist.end()) {
     ConnectionToStateMapping<TCPState> mapping = *cs;
-    mapping.state.RecvBuffer.Clear();
-    mapping.state.RecvBuffer.AddFront(buf);
+    mapping.state.RecvBuffer.AddBack(buf);
     char dataBuf[buflen + 1];
     buf.GetData(dataBuf, buflen, 0);
     dataBuf[buflen] = '\0';
     cerr << "Data: " << dataBuf << endl;
     clist.erase(cs);
     clist.push_front(mapping);
+  }
+}
+
+void sendDataToSocket(ConnectionList<TCPState> &clist, Connection &c, MinetHandle sock) {
+  // don't know if we need bytes here or not
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  if (cs != clist.end()) {
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    SockRequestResponse write;
+    write.connection = c;
+    write.data.AddBack(mapping.state.RecvBuffer);
+    write.type = WRITE;
+    write.bytes = mapping.state.RecvBuffer.GetSize();
+    int result = MinetSend(sock, write);
+    cerr << "sending write to socket: " << write << endl;
+    if (result < 0) {
+      cerr << "error sending data" << endl;
+    } else {
+      cerr << "sending data successful, waiting for status reply" << endl;
+    }
   }
 }
 
@@ -364,7 +457,7 @@ void sendAckPack(Connection &c, MinetHandle mux, unsigned int ack_number, unsign
   ackpack.PushBackHeader(restcph);
   cerr << "Response TCP header is " << restcph <<" and " << endl;
   int result = MinetSend(mux, ackpack);
-  int secondResult = MinetSend(mux, ackpack);
+  //int secondResult = MinetSend(mux, ackpack);
 }
 
 void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux) {
@@ -378,7 +471,7 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
     //cerr << "found earliest time" << endl;
     ConnectionToStateMapping<TCPState> mapping = *i;
     if (mapping.timeout <= currentTime) {
-      cerr << "handling a timed out connection " << endl;
+      //cerr << "handling a timed out connection " << endl;
       // handle timed out connection
       if (mapping.state.tmrTries == 0) {
         cerr << "deleting timed out connection " << endl;
@@ -416,15 +509,15 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
 void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size, ConnectionList<TCPState> &clist) {
   ConnectionToStateMapping<TCPState> m;
   m.connection=c;
-  m.state.SetState(SYN_RCVD);
+  m.state = TCPState(res_seq_number + 1, SYN_RCVD, 500);
   m.state.SetLastRecvd(req_seq_number + 1);
   // set this to the next ACK number we expect
-  m.state.SetLastSent(res_seq_number + 1);
+  //m.state.SetLastSent(res_seq_number + 1);
   // TODO: figure out if rwnd is OUR receive window or THEIRS
   // should be THEIRS based on source code
-  m.state.SetSendRwnd(win_size);
+  //m.state.SetSendRwnd(win_size);
   // expire a connection after sending only one SYNACK
-  m.state.SetTimerTries(3);
+  //m.state.SetTimerTries(500);
   Time currentTime = Time();
   Time fiveSeconds = Time(5.0);
   Time timeout;
@@ -468,21 +561,18 @@ void sendSynAck(Connection c, MinetHandle mux, unsigned int req_seq_number, unsi
   cerr << "Response TCP Packet: IP Header is " << resiph <<" and " << endl;
   cerr << "Response TCP header is " << restcph <<" and " << endl;
   int result = MinetSend(mux, synackpack);
-  sleep(1);
-  int secondResult = MinetSend(mux, synackpack);
-  /*for (int i = 0; i < 10; i++) {
-    MinetSend(mux, synackpack);
-  }*/
+  //sleep(1);
+  //int secondResult = MinetSend(mux, synackpack);
   cerr << "sent packet " << synackpack << endl;
   if (result < 0) {
     cerr << "Minet Send resulted in error " << endl;
   } else {
     cerr << "Minet Send successful " << endl;
   }
-  if (secondResult < 0) {
+  /*if (secondResult < 0) {
     cerr << "Minet second Send resulted in error " << endl;
   } else {
     cerr << "Minet second Send successful " << endl;
-  }
+  }*/
 
 }

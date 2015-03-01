@@ -113,7 +113,6 @@ int main(int argc, char *argv[])
             { // ignored, send OK response
               SockRequestResponse repl;
               repl.type=STATUS;
-              repl.connection=req.connection;
               // buffer is zero bytes
               repl.bytes=0;
               repl.error=EOK;
