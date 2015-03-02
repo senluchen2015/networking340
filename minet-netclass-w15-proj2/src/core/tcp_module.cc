@@ -388,6 +388,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
       case SYN_RCVD:
         // change state to established and deactivate timer
           cerr << "In SYN_RCVD" <<endl;
+          cerr << "req_ack_number: " << req_ack_number;
         if (req_ack_number == mapping.state.last_sent) {
           cerr << "In SYN_RCVD changing state" <<endl;
           mapping.state.stateOfcnx = ESTABLISHED;
@@ -464,7 +465,10 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
             unsigned int res_seq_number = req_ack_number;
             Buffer emptyBuf = Buffer();
             sendAckPack(c, mux, res_ack_number, res_seq_number, 10000, emptyBuf);
-            updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number + 1, res_seq_number, res_ack_number, 0, rwnd, ESTABLISHED);
+            sleep(1);
+            sendAckPack(c, mux, res_ack_number, res_seq_number, 10000, emptyBuf);
+            // don't increment ack number after sending ack pack
+            updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number, res_seq_number, res_ack_number, 0, rwnd, ESTABLISHED);
             // using the same response to socket layer as in ACCEPT incoming connection 
             sendNewConnectionToSocket(sock, c);
           }
