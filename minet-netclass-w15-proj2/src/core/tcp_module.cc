@@ -428,7 +428,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
         // change state to established and deactivate timer
           cerr << "In SYN_RCVD" <<endl;
           cerr << "req_ack_number: " << req_ack_number;
-        if (req_ack_number == mapping.state.last_sent) {
+        if (req_ack_number == mapping.state.last_sent + 1) {
           cerr << "In SYN_RCVD changing state" <<endl;
           mapping.state.stateOfcnx = ESTABLISHED;
           mapping.state.SetLastAcked(req_ack_number);
@@ -711,7 +711,7 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
 void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int res_seq_number, unsigned short win_size, ConnectionList<TCPState> &clist) {
   ConnectionToStateMapping<TCPState> m;
   m.connection=c;
-  m.state = TCPState(res_seq_number + 1, SYN_RCVD, 500);
+  m.state = TCPState(res_seq_number, SYN_RCVD, 500);
   m.state.SetLastRecvd(req_seq_number + 1);
   // set this to the next ACK number we expect
   //m.state.SetLastSent(res_seq_number + 1);
