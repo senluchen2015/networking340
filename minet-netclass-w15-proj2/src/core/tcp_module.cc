@@ -644,7 +644,7 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
     tcph.SetDestPort(mapping.connection.destport,p);
     unsigned char hard_coded_headerlen = 5;
     tcph.SetHeaderLen(hard_coded_headerlen, p);
-    unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.RecvBuffer.GetSize();
+    unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.RecvBuffer.GetSize() + 1;
     tcph.SetSeqNum(res_seq_number, p);
     unsigned int res_ack_number = mapping.state.GetLastRecvd();
     tcph.SetAckNum(res_ack_number, p);
