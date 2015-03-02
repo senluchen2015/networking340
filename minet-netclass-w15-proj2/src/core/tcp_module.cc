@@ -217,7 +217,6 @@ void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHan
       tcph.SetDestPort(c.destport,p);
       unsigned char hardcode_len = 5;
       tcph.SetHeaderLen(hardcode_len, p);
-      // not sure if the +1 is good here
       unsigned int res_seq_number = mapping.state.GetLastSent();
       tcph.SetSeqNum(res_seq_number, p);
       unsigned int res_ack_number = mapping.state.GetLastRecvd();
@@ -460,7 +459,8 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           cerr << "mapping last sent: " << mapping.state.GetLastSent() << endl;
           cerr << "req_seq_number: " << req_seq_number << endl;
           if (req_ack_number == mapping.state.GetLastSent() + 1) {
-            unsigned int res_seq_number = req_ack_number + 1;
+            // maybe don't add a 1 here?
+            unsigned int res_seq_number = req_ack_number;
             Buffer emptyBuf = Buffer();
             sendAckPack(c, mux, res_ack_number, res_seq_number, 10000, emptyBuf);
             updateConnectionStateMapping(clist, c, req_seq_number, req_ack_number + 1, res_seq_number, res_ack_number, 0, rwnd, ESTABLISHED);
