@@ -268,6 +268,7 @@ void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHan
       tcph.SetFlags(flags, p);
       p.PushBackHeader(tcph);
       int results = MinetSend(mux,p);
+      cerr << "in SEND_DATA SENDING PACKET THAT WAS SENT BY SOCKET" << endl;
       cerr << "sending packet: " << p << endl;
       cerr << "sending tcp header: " << tcph << endl;
       // giving 0 for req_seq_number, because it is not used
