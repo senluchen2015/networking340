@@ -610,7 +610,7 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
         switch(mapping.state.stateOfcnx) {
           case SYN_RCVD:
             // server trying to resend SYNACK   
-            sendSynAck(mapping.connection, mux, mapping.state.last_recvd - 1, mapping.state.last_sent - 1, 10000);
+            sendSynAck(mapping.connection, mux, mapping.state.last_recvd , mapping.state.last_sent , 10000);
             cerr << "resending synack " << endl;
             break;
           case SYN_SENT:
