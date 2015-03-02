@@ -86,6 +86,7 @@ int main(int argc, char *argv[])
         cerr << " \n started block from mux \n " << endl;
         Packet p;
         MinetReceive(mux,p);
+        cerr << "packet's raw size is: " << p.GetRawSize() << endl;
         unsigned tcphlen=TCPHeader::EstimateTCPHeaderLength(p);
         cerr << "estimated header len="<<tcphlen<<"\n" << endl;
         p.ExtractHeaderFromPayload<TCPHeader>(tcphlen);
@@ -97,8 +98,11 @@ int main(int argc, char *argv[])
         Connection c;
         // note that this is flipped around because
         // "source" is interepreted as "this machine"
+        unsigned char ipLen = 0;
+        unsigned short totalLen = 0;
         iph.GetDestIP(c.src);
         iph.GetSourceIP(c.dest);
+        iph.GetHeaderLength(ipLen);
         iph.GetProtocol(c.protocol);
         tcph.GetDestPort(c.srcport);
         tcph.GetSourcePort(c.destport);
@@ -110,16 +114,27 @@ int main(int argc, char *argv[])
 
         cerr << "Checksum is " << (tcph.IsCorrectChecksum(p) ? "VALID" : "INVALID");
 
-        Buffer &buf = p.GetPayload();
-        unsigned char len = 0;
+        Buffer &rawPayload = p.GetPayload();
+        unsigned char tcpLen = 0;
         unsigned char flags = 0;
         unsigned int seq_number = 0;
         unsigned short win_size = 0;
-        size_t buflen = buf.GetSize();
-        tcph.GetHeaderLen(len);
+        tcph.GetHeaderLen(tcpLen);
         tcph.GetFlags(flags);
         tcph.GetSeqNum(seq_number);
         tcph.GetWinSize(win_size);
+
+        iph.GetTotalLength(totalLen);
+
+        cerr << " \n\n total length of ip packet is " << totalLen << endl;
+        unsigned tcpLenBytes = unsigned(tcpLen) * 4;
+        unsigned ipLenBytes = unsigned(ipLen) * 4;
+        unsigned bytesToExtract = unsigned(totalLen) - tcpLenBytes - ipLenBytes;
+        cerr << " total length of ip header is " << ipLenBytes << endl;
+        cerr << "extracting bytes: " << bytesToExtract << endl;
+        Buffer &buf = rawPayload.ExtractFront(bytesToExtract);
+        size_t buflen = buf.GetSize();
+        cerr << "new buf is " << buf << endl;
 
         if (cs!=clist.end()) {
           cerr << "connection TCPState state is " << (*cs).state.GetState() << endl;
@@ -143,7 +158,7 @@ int main(int argc, char *argv[])
         buf.GetData(sample, buflen, 0);
         sample[buflen] = '\0';
         cerr << " buffer length is " << buf.GetSize();
-        cerr << " tcp header len is " << len;
+        cerr << " tcp header len is " << tcpLen;
         cerr << " printing data " << sample;
 
       }
@@ -173,6 +188,7 @@ int main(int argc, char *argv[])
           handleSocketStatus(clist, req);
         }
         if (req.type == WRITE) {
+          cerr << "sending new data from socket " << endl;
           sendDataFromSocket(req.connection, clist, mux, sock, req.data);
         }
       }
@@ -185,7 +201,7 @@ void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHan
   ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
   if (cs != clist.end()) {
     ConnectionToStateMapping<TCPState> mapping = *cs;
-    if (mapping.state.GetState() == ESTABLISHED) {
+    if (mapping.state.GetState() == ESTABLISHED || mapping.state.GetState() == SEND_DATA) {
       unsigned offsetlastsent = 0;
       size_t bytesize = 0;
       unsigned bytes = buf.GetSize();
@@ -202,7 +218,7 @@ void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHan
       unsigned char hardcode_len = 5;
       tcph.SetHeaderLen(hardcode_len, p);
       // not sure if the +1 is good here
-      unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.SendBuffer.GetSize();
+      unsigned int res_seq_number = mapping.state.GetLastSent();
       tcph.SetSeqNum(res_seq_number, p);
       unsigned int res_ack_number = mapping.state.GetLastRecvd();
       tcph.SetAckNum(res_ack_number, p);
@@ -392,7 +408,6 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
         updateConnectionStateMapping(clist, c, mapping.state.GetLastRecvd(), req_ack_number, res_seq_number, res_ack_number, 0, rwnd, SEND_DATA);
         cs = clist.FindMatching(c);
         mapping = *cs;
-        sendDataFromSocket(c, clist, mux, sock, mapping.state.SendBuffer);
       }
       case ESTABLISHED:
         // check if the segment contains data
@@ -640,6 +655,8 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
     tcph.SetFlags(flags, p);
     p.PushBackHeader(tcph);
     int results = MinetSend(mux,p);
+    cerr << "resending packet: " << p << endl;
+    cerr << "tcp header: " << tcph << endl;
     if (to_send.GetSize() > 0 && bytes > 0) {
       cerr << "recursively calling sendLastN" << endl;
       sendLastN(clist, c, to_send, mux);
