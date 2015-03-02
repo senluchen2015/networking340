@@ -469,7 +469,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
             // seq_number + last packet's size)
             cerr << "req_ack_number: " << req_ack_number << endl;
             cerr << "GetLastSent: " << mapping.state.GetLastSent() << endl;;
-            if (req_ack_number == mapping.state.GetLastSent()) {
+            if (req_ack_number == mapping.state.GetLastSent() + 1) {
               // seq_number is simply our last sent
               unsigned int res_seq_number = mapping.state.GetLastSent();
               // window size is equal to receive buffer's size
