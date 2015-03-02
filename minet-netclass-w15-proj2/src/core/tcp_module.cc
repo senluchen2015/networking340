@@ -589,7 +589,7 @@ void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c
     mapping.state.SetLastAcked(req_ack_number);
     mapping.state.SetSendRwnd(rwnd);
     mapping.timeout = timeFromNow(0.5);
-    mapping.timertries = 500;
+    mapping.state.SetTimerTries(500);
     mapping.bTmrActive = true;
     clist.erase(cs);
     clist.push_front(mapping);
