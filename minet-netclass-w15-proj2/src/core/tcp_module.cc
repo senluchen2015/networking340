@@ -361,7 +361,7 @@ void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, uns
   // TODO: change hardcoded timer tries value
   //m.state.SetTimerTries(500);
   m.bTmrActive = true;
-  m.timeout = timeFromNow(0.5);
+  m.timeout = timeFromNow(1.0);
   clist.push_front(m);
 }
 
@@ -588,7 +588,7 @@ void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c
     mapping.state.SetLastSent(res_seq_number + datalen);
     mapping.state.SetLastAcked(req_ack_number);
     mapping.state.SetSendRwnd(rwnd);
-    mapping.timeout = timeFromNow(0.5);
+    mapping.timeout = timeFromNow(1.0);
     mapping.state.SetTimerTries(500);
     mapping.bTmrActive = true;
     clist.erase(cs);
@@ -641,7 +641,7 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
         clist.erase(i);
       } else {
         mapping.state.tmrTries--;
-        Time fiveSeconds = Time(0.5);
+        Time fiveSeconds = Time(1.0);
         Time timeout;
         timeradd(&currentTime, &fiveSeconds, &timeout);
         clist.erase(i);
@@ -723,7 +723,7 @@ void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int r
   // expire a connection after sending only one SYNACK
   //m.state.SetTimerTries(500);
   Time currentTime = Time();
-  Time fiveSeconds = Time(0.5);
+  Time fiveSeconds = Time(1.0);
   Time timeout;
   timeradd(&currentTime, &fiveSeconds, &timeout);
   cerr << "new timeout time is " << timeout << endl;
