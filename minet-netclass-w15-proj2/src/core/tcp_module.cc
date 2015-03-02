@@ -458,7 +458,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           unsigned int res_ack_number = req_seq_number + 1;
           cerr << "mapping last sent: " << mapping.state.GetLastSent() << endl;
           cerr << "req_ack_number: " << req_ack_number << endl;
-          if (req_ack_number == mapping.state.GetLastSent() + 1) {
+          if (req_ack_number == mapping.state.GetLastSent()) {
             cerr << "sending ack in response to synack" << endl;
             // maybe don't add a 1 here?
             unsigned int res_seq_number = req_ack_number;
