@@ -256,7 +256,7 @@ void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHan
       tcph.SetDestPort(c.destport,p);
       unsigned char hardcode_len = 5;
       tcph.SetHeaderLen(hardcode_len, p);
-      unsigned int res_seq_number = mapping.state.GetLastSent();
+      unsigned int res_seq_number = mapping.state.GetLastSent() + 1;
       tcph.SetSeqNum(res_seq_number, p);
       unsigned int res_ack_number = mapping.state.GetLastRecvd();
       tcph.SetAckNum(res_ack_number, p);
