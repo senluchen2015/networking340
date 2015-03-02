@@ -361,7 +361,7 @@ void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, uns
   // TODO: change hardcoded timer tries value
   //m.state.SetTimerTries(500);
   m.bTmrActive = true;
-  m.timeout = timeFromNow(5.0);
+  m.timeout = timeFromNow(0.1);
   clist.push_front(m);
 }
 
@@ -588,7 +588,7 @@ void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c
     mapping.state.SetLastSent(res_seq_number + datalen);
     mapping.state.SetLastAcked(req_ack_number);
     mapping.state.SetSendRwnd(rwnd);
-    mapping.timeout = timeFromNow(5.0);
+    mapping.timeout = timeFromNow(0.1);
     mapping.bTmrActive = true;
     clist.erase(cs);
     clist.push_front(mapping);
@@ -712,7 +712,7 @@ void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int r
   ConnectionToStateMapping<TCPState> m;
   m.connection=c;
   m.state = TCPState(res_seq_number, SYN_RCVD, 500);
-  m.state.SetLastRecvd(req_seq_number + 1);
+  m.state.SetLastRecvd(req_seq_number);
   // set this to the next ACK number we expect
   //m.state.SetLastSent(res_seq_number + 1);
   // TODO: figure out if rwnd is OUR receive window or THEIRS
