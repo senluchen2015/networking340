@@ -457,7 +457,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           cerr << "req_seq_number: "<< req_seq_number << endl;
           cerr << "GetLastRecvd: "<< mapping.state.GetLastRecvd() << endl;
           // if the packet is in order, continue
-          if (req_seq_number == mapping.state.GetLastRecvd()) {
+          if (req_seq_number == mapping.state.GetLastRecvd() + 1) {
             // segment received is directly after last one; send an ACK
             // of seq_number + data length; make sure ack_number is mod 2^32
             cerr << "Established case with seq_number == last_recved" << endl;
@@ -640,7 +640,7 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
         clist.erase(i);
       } else {
         mapping.state.tmrTries--;
-        Time fiveSeconds = Time(5.0);
+        Time fiveSeconds = Time(0.1);
         Time timeout;
         timeradd(&currentTime, &fiveSeconds, &timeout);
         clist.erase(i);
@@ -722,7 +722,7 @@ void addSynAckMapping(Connection &c, unsigned int req_seq_number, unsigned int r
   // expire a connection after sending only one SYNACK
   //m.state.SetTimerTries(500);
   Time currentTime = Time();
-  Time fiveSeconds = Time(5.0);
+  Time fiveSeconds = Time(0.1);
   Time timeout;
   timeradd(&currentTime, &fiveSeconds, &timeout);
   cerr << "new timeout time is " << timeout << endl;
