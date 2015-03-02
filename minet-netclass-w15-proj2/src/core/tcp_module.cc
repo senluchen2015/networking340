@@ -43,6 +43,11 @@ void sendDataToSocket(ConnectionList<TCPState> &clist, Connection &c, MinetHandl
 void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHandle mux, MinetHandle sock, Buffer &buf);
 void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, MinetHandle mux);
 void updateSendBuffer(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen);
+void enterState(Connection &c, ConnectionList<TCPState> &clist, unsigned int state);
+void sendCloseToSocket(Connection &c, MinetHandle sock);
+void startTimeWait(Connection &c, ConnectionList<TCPState> &clist);
+void sendFin(Connection &c, ConnectionList<TCPState> &clist, MinetHandle mux);
+void sendAckToFin(Connection &c, unsigned int res_seq_number, unsigned int res_ack_number, MinetHandle mux, unsigned short win_size);
  
 int main(int argc, char *argv[])
 {
@@ -119,9 +124,11 @@ int main(int argc, char *argv[])
         unsigned char flags = 0;
         unsigned int seq_number = 0;
         unsigned short win_size = 0;
+        unsigned int ack_number = 0;
         tcph.GetHeaderLen(tcpLen);
         tcph.GetFlags(flags);
         tcph.GetSeqNum(seq_number);
+        tcph.GetAckNum(ack_number);
         tcph.GetWinSize(win_size);
 
         iph.GetTotalLength(totalLen);
@@ -150,7 +157,46 @@ int main(int argc, char *argv[])
         }
         if (IS_ACK(flags)) {
           cerr << "received an ACK, updating states " << endl;
-          handleAck(clist, c, buf, buflen, tcph, mux, sock);
+          if (!IS_FIN(flags)) {
+            handleAck(clist, c, buf, buflen, tcph, mux, sock);
+          }
+        }
+        if (IS_FIN(flags)) {
+          cerr << "received a FIN, updateing states" << endl;
+          ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+          ConnectionToStateMapping<TCPState> mapping = *cs;
+          if (mapping.state.GetState() ==  CLOSED || mapping.state.GetState() ==  LISTEN || mapping.state.GetState() == SYN_SENT) {
+            // ignore and return
+            continue;
+          }
+          if (mapping.state.GetState() ==  CLOSE_WAIT || mapping.state.GetState() ==  LAST_ACK || mapping.state.GetState() == CLOSING) {
+            // stay in these states
+          }
+          if (mapping.state.GetState() == ESTABLISHED || mapping.state.GetState() == SYN_RCVD || mapping.state.GetState() == SEND_DATA) {
+            cerr << "entering close wait state" << endl;
+            enterState(c, clist, CLOSE_WAIT);
+          }
+          if (mapping.state.GetState() == FIN_WAIT1) {
+            // shouldn't happen anyway because of no simultaneous closes
+            enterState(c, clist, CLOSING);
+          }
+          if (mapping.state.GetState() == FIN_WAIT2) {
+            cerr << "entering timed wait due to fin packet while in FIN_WAIT2 state" << endl;
+            enterState(c, clist, TIME_WAIT);
+            startTimeWait(c, clist);
+          }
+          // make sure state is always up to date
+          // always send close to socket
+          sendCloseToSocket(c, sock);
+          // always send FINACK
+          sendAckToFin(c, ack_number, seq_number + 1, mux, win_size);
+          // update connection state
+          // advance the res_ack_number by 1, but keep res_seq_number the same
+          cs = clist.FindMatching(c);
+          mapping = *cs;
+          mapping.state.SetLastRecvd(mapping.state.GetLastRecvd() + 1);
+          clist.erase(cs);
+          clist.push_front(mapping);
         }
 
         
@@ -189,12 +235,86 @@ int main(int argc, char *argv[])
         }
         if (req.type == WRITE) {
           cerr << "sending new data from socket " << endl;
-          sendDataFromSocket(req.connection, clist, mux, sock, req.data);
+          ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+          if (cs != clist.end()) {
+            ConnectionToStateMapping<TCPState> mapping = *cs;
+            if (mapping.state.GetState() != FIN_WAIT1 && mapping.state.GetState() != FIN_WAIT2 && mapping.state.GetState() != CLOSING && mapping.state.GetState() != LAST_ACK && mapping.state.GetState() != TIME_WAIT) {
+              sendDataFromSocket(req.connection, clist, mux, sock, req.data);
+            } else {
+              // no more sends allowed in those states
+              SockRequestResponse res;
+              res.connection = req.connection;
+              res.type = STATUS;
+              res.error = -1;
+              MinetSend(sock, res);
+            }
+          }
+        }
+        if (req.type == CLOSE) {
+          cerr << "socket requested a closed connection " << endl;
+          ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+          ConnectionToStateMapping<TCPState> mapping = *cs;
+
+          if (mapping.state.GetState() == CLOSE_WAIT) {
+            cerr << "entering last ack" << endl;
+            sendFin(req.connection, clist, mux);
+            enterState(req.connection, clist, LAST_ACK);
+          } else if (mapping.state.GetState() == LAST_ACK) {
+            // error condition
+          } else {
+            cerr << "entering FIN WAIT 1" << endl;
+            sendFin(req.connection, clist, mux);
+            enterState(req.connection, clist, FIN_WAIT1);
+          }
         }
       }
     }
   }
   return 0;
+}
+
+void sendAckToFin(Connection &c, unsigned int res_seq_number, unsigned int res_ack_number, MinetHandle mux, unsigned short win_size) {
+  Packet finackpack = Packet();
+  // no additional data besides TCP header
+  IPHeader iph = setIPHeaders(c, 20, 0);
+  finackpack.PushFrontHeader(iph);
+  TCPHeader restcph = TCPHeader();
+  restcph.SetSourcePort(c.srcport, finackpack);
+  restcph.SetDestPort(c.destport, finackpack);
+  restcph.SetSeqNum(res_seq_number, finackpack);
+  restcph.SetAckNum(res_ack_number, finackpack);
+  restcph.SetWinSize(win_size, finackpack);
+  unsigned char flags = 0;
+  SET_ACK(flags);
+  restcph.SetFlags(flags, finackpack);
+  unsigned char hardcode_len = 5;
+  restcph.SetHeaderLen(hardcode_len, finackpack);
+  finackpack.PushBackHeader(restcph);
+  cerr << "added TCP header to packet" << endl;
+  cerr << "Response TCP Packet: IP Header is " << iph <<" and " << endl;
+  cerr << "Response TCP header is " << restcph <<" and " << endl;
+  int result = MinetSend(mux, finackpack);
+}
+
+void sendCloseToSocket(Connection &c, MinetHandle sock) {
+  SockRequestResponse res;
+  res.connection = c;
+  res.type = WRITE;
+  res.bytes = 0;
+  res.error = EOK;
+  cerr << "sending close request: " << res << endl;
+  MinetSend(sock, res);
+}
+
+void enterState(Connection &c, ConnectionList<TCPState> &clist, unsigned int state) {
+  // just setting the state
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  if (cs != clist.end()) {
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    mapping.state.SetState(state);
+    clist.erase(cs);
+    clist.push_front(mapping);
+  }
 }
 
 void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHandle mux, MinetHandle sock, Buffer &buf) {
@@ -426,6 +546,7 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
     // there is a connection for which to handle ACK
     cerr << " testing state of connection" <<endl;
     switch(mapping.state.stateOfcnx) {
+      cerr << "GOING INTO CASE for handling ACK: " << mapping.state << endl;
       case SYN_RCVD:
         // change state to established and deactivate timer
           cerr << "In SYN_RCVD" <<endl;
@@ -507,6 +628,40 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           }
         }
         break;
+      case FIN_WAIT1:
+        // receive data, and check if the FIN has been acked
+        // this is the case if our last acked is equal to our last sent, and if
+        cs = clist.FindMatching(c);
+        if ((*cs).state.SendBuffer.GetSize() == 0) {
+          // FIN has been sent
+          cerr << "entering FIN_WAIT2 due to ACK" << endl;
+          enterState(c, clist, FIN_WAIT2);
+        }
+        if (IS_FIN(flags)) {
+          cerr << "in fin wait 1, entering timed wait" << endl;
+          enterState(c, clist, TIME_WAIT);
+          startTimeWait(c, clist);
+        }
+        break;
+      case FIN_WAIT2:
+        break;
+      case TIME_WAIT:
+      {
+        cerr << "in time wait" << endl;
+        Buffer emptyBuf = Buffer();
+        // acknowledge FIN packet
+        if (IS_FIN(flags)) { 
+          sendAckPack(c, mux, req_seq_number + 1, req_ack_number, 10000, emptyBuf);
+          // restart timer
+        }
+        break;
+      }
+      case LAST_ACK:
+        cerr << "in last ack, closing connection now" << endl;
+        enterState(c, clist, CLOSED);
+        cs = clist.FindMatching(c);
+        clist.erase(cs);
+        break;
       case SYN_SENT:
         if (IS_SYN(flags)){
           cerr << "IS_SYN flag detected, SYN ACK received" <<endl;
@@ -530,6 +685,51 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
         break;
       default:
         break;
+    }
+  }
+}
+
+void startTimeWait(Connection &c, ConnectionList<TCPState> &clist) {
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  if (cs != clist.end()) {
+    cerr << "setting 4 minutes from now timer" << endl;
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    mapping.timeout = timeFromNow(2.0 * double(MSL_TIME_SECS));
+    mapping.state.SetTimerTries(1);
+    mapping.bTmrActive = true;
+    clist.erase(cs);
+    clist.push_front(mapping);
+  }
+}
+
+void sendFin(Connection &c, ConnectionList<TCPState> &clist, MinetHandle mux) {
+  ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+  if (cs != clist.end()) {
+    ConnectionToStateMapping<TCPState> mapping = *cs;
+    if (mapping.state.SendBuffer.GetSize() == 0) {
+      // no more segments to send, send a fin
+      // otherwise, wait for timeout to check
+      Packet finpack = Packet();
+      IPHeader resiph = setIPHeaders(c, 20, 0);
+      finpack.PushFrontHeader(resiph);
+      TCPHeader restcph = TCPHeader();
+      restcph.SetSourcePort(c.srcport, finpack);
+      restcph.SetDestPort(c.destport, finpack);
+      restcph.SetSeqNum(mapping.state.GetLastAcked() + 1, finpack);
+      restcph.SetAckNum(mapping.state.GetLastRecvd(), finpack);
+      restcph.SetWinSize(mapping.state.GetRwnd(), finpack);
+      unsigned char flags = 0;
+      SET_FIN(flags);
+      SET_ACK(flags);
+      restcph.SetFlags(flags, finpack);
+      unsigned char hardcode_len = 5;
+      restcph.SetHeaderLen(hardcode_len, finpack);
+      finpack.PushBackHeader(restcph);
+      cerr << "Fin pack TCP Header is" << restcph <<" and " << endl;
+      int result = MinetSend(mux, finpack);
+      if (mapping.state.GetState() == CLOSE_WAIT) {
+        enterState(c, clist, LAST_ACK);
+      }
     }
   }
 }
@@ -677,6 +877,28 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
             cerr << "mapping.state.sendBuffer: " << mapping.state.SendBuffer << endl; 
             sendLastN(clist, mapping.connection, mapping.state.SendBuffer, mux);
             break;
+          case FIN_WAIT1:
+            cerr << "timed out - checking if we can send a fin" << endl;
+            if (mapping.state.SendBuffer.GetSize() == 0) {
+              sendFin(mapping.connection, clist, mux);
+            } else {
+              sendLastN(clist, mapping.connection, mapping.state.SendBuffer, mux);
+              sendFin(mapping.connection, clist, mux);
+            }
+            break;
+          case TIME_WAIT:
+            // connection has timed out and it is time to delete the connection
+            clist.erase(i);
+            break;
+          case CLOSE_WAIT:
+            cerr << "timed out - checking if we can send a fin" << endl;
+            if (mapping.state.SendBuffer.GetSize() == 0) {
+              sendFin(mapping.connection, clist, mux);
+            } else {
+              sendLastN(clist, mapping.connection, mapping.state.SendBuffer, mux);
+              sendFin(mapping.connection, clist, mux);
+            }
+            break;
           default:
             break;
         }
@@ -714,7 +936,6 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
     unsigned int res_seq_number = mapping.state.GetLastAcked() + to_send.GetSize() + 2;
     
     cerr << "res_seq_number: " << res_seq_number << endl;
-
     tcph.SetSeqNum(res_seq_number, p);
     unsigned int res_ack_number = mapping.state.GetLastRecvd();
     tcph.SetAckNum(res_ack_number, p);

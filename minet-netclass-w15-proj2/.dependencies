@@ -266,9 +266,9 @@ device_driver.o: src/lowlevel/device_driver.cc src/libminet/config.h \
  src/libminet/raw_ethernet_packet.h src/libminet/packet.h \
  src/libminet/buffer.h src/libminet/util.h src/libminet/headertrailer.h \
  src/libminet/raw_ethernet_packet_buffer.h src/libminet/debug.h
-device_driver2.o: src/lowlevel/device_driver2.cc src/libminet/Minet.h \
- src/libminet/config.h src/libminet/buffer.h src/libminet/util.h \
- src/libminet/debug.h src/libminet/error.h \
+device_driver2.o: src/lowlevel/device_driver2.cc /usr/include/pcap/pcap.h \
+ src/libminet/Minet.h src/libminet/config.h src/libminet/buffer.h \
+ src/libminet/util.h src/libminet/debug.h src/libminet/error.h \
  src/libminet/raw_ethernet_packet.h src/libminet/packet.h \
  src/libminet/headertrailer.h src/libminet/raw_ethernet_packet_buffer.h \
  src/libminet/ethernet.h src/libminet/arp.h src/libminet/ip.h \
@@ -276,11 +276,11 @@ device_driver2.o: src/lowlevel/device_driver2.cc src/libminet/Minet.h \
  src/libminet/tcp.h src/libminet/sock.h src/libminet/sockint.h \
  src/libminet/sock_mod_structs.h src/libminet/constate.h \
  src/libminet/Monitor.h
-reader.o: src/lowlevel/reader.cc src/libminet/config.h \
- src/libminet/raw_ethernet_packet.h src/libminet/config.h \
- src/libminet/packet.h src/libminet/buffer.h src/libminet/util.h \
- src/libminet/headertrailer.h src/libminet/raw_ethernet_packet.h \
- src/libminet/debug.h
+reader.o: src/lowlevel/reader.cc /usr/include/pcap/pcap.h \
+ src/libminet/config.h src/libminet/raw_ethernet_packet.h \
+ src/libminet/config.h src/libminet/packet.h src/libminet/buffer.h \
+ src/libminet/util.h src/libminet/headertrailer.h \
+ src/libminet/raw_ethernet_packet.h src/libminet/debug.h
 writer.o: src/lowlevel/writer.cc src/libminet/config.h \
  src/libminet/util.h src/libminet/raw_ethernet_packet.h \
  src/libminet/config.h src/libminet/packet.h src/libminet/buffer.h \
