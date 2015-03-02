@@ -43,7 +43,6 @@ void sendDataToSocket(ConnectionList<TCPState> &clist, Connection &c, MinetHandl
 void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHandle mux, MinetHandle sock, Buffer &buf);
 void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, MinetHandle mux);
 void updateSendBuffer(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size_t buflen);
- 
 int main(int argc, char *argv[])
 {
   MinetHandle mux, sock;
@@ -229,8 +228,10 @@ void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHan
       cerr << "sending packet: " << p << endl;
       cerr << "sending tcp header: " << tcph << endl;
       // giving 0 for req_seq_number, because it is not used
-      cerr << "GETLASTACKED(): "<< mapping.state.GetLastAcked(); 
-      updateConnectionStateMapping(clist, c, 1, mapping.state.GetLastAcked()-1, res_seq_number, res_ack_number, bytesize, mapping.state.rwnd, SEND_DATA);
+      cerr << "GETLASTACKED() - 1: "<< mapping.state.GetLastAcked() - 1; 
+      updateConnectionStateMapping(clist, c, 1, mapping.state.GetLastSent() , res_seq_number, res_ack_number, bytesize, mapping.state.rwnd, SEND_DATA);
+      // special case hardcode get last acked 
+
       updateSendBuffer(clist, c, buf, bytesize);
       // now send a status back to the socket
       SockRequestResponse res;
@@ -297,7 +298,7 @@ void updateSendBuffer(ConnectionList<TCPState> &clist, Connection &c, Buffer &bu
     mapping.state.SendBuffer.AddBack(buf);
     char dataBuf[buflen + 1];
     buf.GetData(dataBuf, buflen, 0);
-    dataBuf[buflen] = '\0';
+    //dataBuf[buflen] = '\0';
     cerr << "Data added to send buffer: " << dataBuf << endl;
     clist.erase(cs);
     clist.push_front(mapping);
@@ -458,7 +459,8 @@ void handleAck(ConnectionList<TCPState> &clist, Connection &c, Buffer &buf, size
           unsigned int res_ack_number = mapping.state.GetLastRecvd();
           cerr << "res_seq_number: " << res_seq_number <<endl;
           cerr << "res_ack_number: " << res_ack_number <<endl;
-          updateConnectionStateMapping(clist, c, mapping.state.GetLastRecvd(), req_ack_number-1, res_seq_number, res_ack_number, 0, rwnd, SEND_DATA);
+          cerr << "buffer :" << mapping.state.SendBuffer << endl;
+          updateConnectionStateMapping(clist, c, mapping.state.GetLastRecvd()+1, req_ack_number, res_seq_number, res_ack_number, 0, rwnd, SEND_DATA);
           cs = clist.FindMatching(c);
           mapping = *cs;
         }
@@ -606,6 +608,8 @@ void updateConnectionStateMapping(ConnectionList<TCPState> &clist, Connection &c
     mapping.timeout = timeFromNow(5.0);
     mapping.state.SetTimerTries(500);
     mapping.bTmrActive = true;
+    cerr << "printing set last acked in updateconnection" << endl;
+    cerr << mapping.state.GetLastAcked() << endl;
     clist.erase(cs);
     clist.push_front(mapping);
   }
@@ -711,7 +715,7 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
     cerr << "LastRecvd: " << mapping.state.GetLastRecvd() << endl;
     cerr << "LastSent: " << mapping.state.GetLastSent() << endl;
     cerr << "LastAcked: " << mapping.state.GetLastAcked() <<endl;
-    unsigned int res_seq_number = mapping.state.GetLastAcked() + to_send.GetSize() + 2;
+    unsigned int res_seq_number = mapping.state.GetLastAcked() + to_send.GetSize() + 1;
     
     cerr << "res_seq_number: " << res_seq_number << endl;
 
