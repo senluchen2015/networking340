@@ -357,7 +357,7 @@ void addActiveOpenConnection(ConnectionList<TCPState> &clist, Connection &c, uns
   m.connection = c;
   m.state = TCPState(seq_number, SYN_SENT, 500);
   // convention assume last sent is the seq number + the size of the buf or +1 in Syn case
-  //m.state.SetLastSent(seq_number);
+  m.state.SetLastSent(seq_number);
   // TODO: change hardcoded timer tries value
   //m.state.SetTimerTries(500);
   m.bTmrActive = true;
@@ -654,7 +654,7 @@ void checkForTimedOutConnection(ConnectionList<TCPState> &clist, MinetHandle mux
             cerr << "resending synack " << endl;
             break;
           case SYN_SENT:
-            activeOpen(mux, mapping.connection, mapping.state.GetLastSent() - 1);
+            activeOpen(mux, mapping.connection, mapping.state.GetLastSent());
             cerr << "resending syn " << endl; 
             break;
           case SEND_DATA:
