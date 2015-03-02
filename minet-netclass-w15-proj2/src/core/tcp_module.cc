@@ -201,14 +201,53 @@ void sendDataFromSocket(Connection &c, ConnectionList<TCPState> &clist, MinetHan
   ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
   if (cs != clist.end()) {
     ConnectionToStateMapping<TCPState> mapping = *cs;
-    if (mapping.state.GetState() == ESTABLISHED || mapping.state.GetState() == SEND_DATA) {
+    if (mapping.state.GetState() == ESTABLISHED) {
       unsigned offsetlastsent = 0;
       size_t bytesize = 0;
       unsigned bytes = buf.GetSize();
       mapping.state.SendPacketPayload(offsetlastsent, bytesize, bytes);
-      //unsigned int bytes = MIN_MACRO(TCP_MAXIMUM_SEGMENT_SIZE, buf.GetSize());
-      //bytes = MIN_MACRO(bytes, mapping.state.rwnd);
-      //Buffer &buf = req.data.ExtractFront(bytes);
+      Packet p(buf);
+      IPHeader iph = setIPHeaders(c, 20, bytesize);
+      p.PushFrontHeader(iph);
+      TCPHeader tcph;
+      tcph.SetSourcePort(c.srcport,p);
+      tcph.SetDestPort(c.destport,p);
+      unsigned char hardcode_len = 5;
+      tcph.SetHeaderLen(hardcode_len, p);
+      unsigned int res_seq_number = mapping.state.GetLastSent();
+      tcph.SetSeqNum(res_seq_number, p);
+      unsigned int res_ack_number = mapping.state.GetLastRecvd();
+      tcph.SetAckNum(res_ack_number, p);
+      // TODO: remove hardcoded window size
+      tcph.SetWinSize(10000, p);
+      unsigned char flags = 0;
+      SET_ACK(flags);
+      SET_PSH(flags);
+      tcph.SetFlags(flags, p);
+      p.PushBackHeader(tcph);
+      int results = MinetSend(mux,p);
+      cerr << "sending packet: " << p << endl;
+      cerr << "sending tcp header: " << tcph << endl;
+      // giving 0 for req_seq_number, because it is not used
+      updateConnectionStateMapping(clist, c, 0, mapping.state.GetLastAcked(), res_seq_number, res_ack_number, bytesize, mapping.state.rwnd, SEND_DATA);
+      updateSendBuffer(clist, c, buf, bytesize);
+      // now send a status back to the socket
+      SockRequestResponse res;
+      res.type = STATUS;
+      res.connection = c;
+      res.bytes = bytesize;
+      if (results < 0) {
+        res.error = results;
+      } else {
+        res.error = EOK;
+      }
+      MinetSend(sock, res);
+    }
+    if (mapping.state.GetState() == SEND_DATA) {
+      unsigned offsetlastsent = 0;
+      size_t bytesize = 0;
+      unsigned bytes = buf.GetSize();
+      mapping.state.SendPacketPayload(offsetlastsent, bytesize, bytes);
       Packet p(buf);
       IPHeader iph = setIPHeaders(c, 20, bytesize);
       p.PushFrontHeader(iph);
@@ -648,7 +687,7 @@ void sendLastN(ConnectionList<TCPState> &clist, Connection &c, Buffer &to_send, 
     tcph.SetDestPort(mapping.connection.destport,p);
     unsigned char hard_coded_headerlen = 5;
     tcph.SetHeaderLen(hard_coded_headerlen, p);
-    unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.RecvBuffer.GetSize();
+    unsigned int res_seq_number = mapping.state.GetLastAcked() + mapping.state.RecvBuffer.GetSize() + 1;
     tcph.SetSeqNum(res_seq_number, p);
     unsigned int res_ack_number = mapping.state.GetLastRecvd();
     tcph.SetAckNum(res_ack_number, p);
