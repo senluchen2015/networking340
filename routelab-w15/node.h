@@ -62,6 +62,8 @@ class Node {
   virtual Node *GetNextHop(const Node *destination) const;
   virtual Table *GetRoutingTable() const;
 
+  void PostEvent(const Link *l);
+  virtual Node * FindNeighbor(unsigned number) const;
   virtual ostream & Print(ostream &os) const;
 
 };
