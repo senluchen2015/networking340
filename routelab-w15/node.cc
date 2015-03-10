@@ -147,11 +147,29 @@ ostream & Node::Print(ostream &os) const
 
 
 #if defined(DISTANCEVECTOR)
+void Node::PostEvent(Link *l){
+ 
+   double setTime = context->GetTime() + l->lat;
+   EventType type = ROUTING_MESSAGE_ARRIVAL;
+   Node *handler_node = FindNeighbor(l->dest);
+   RoutingMessage *message = RoutingMessage(this);
+   Event *e = Event(setTime, type, handler_node, mesages);
+   context -> PostEvent(e);  
+}
 
 void Node::LinkHasBeenUpdated(const Link *l)
 {
   // update our table
+  unordered_map<unsigned, double> dest_map = table[l->dest];
+  dest_map[l->dest] = l->lat; 
+  table.UpdateTable(l->dest, dest_map);
+  
   // send out routing mesages
+  deque<Links*> out_going_links = context -> GetOutgoingLinks(this);
+  for (int i = 0; i < out_going_links.size(); i++){
+    PostEvent(out_going_links[i]);
+  }  
+
   cerr << *this<<": Link Update: "<<*l<<endl;
 }
 
@@ -169,12 +187,43 @@ void Node::TimeOut()
 
 Node *Node::GetNextHop(const Node *destination) const
 {
+  unordered_map<unsigned, double> curr_map;
+  double min = -1;
+  int min_number = 0;
+  Node *returned_node;  
+  for (auto it = table.begin(); it != table.end(); ++it){
+    curr_map = it->second;
+    if(min == -1 || curr_map[destination->number] < min){
+      min = curr_map[destination->number]; 
+      min_number = it->first;
+    } 
+  }
+  returned_node = FindNeighbor(min_number);
+  return returned_node; 
+}
+
+Node *Node::FindNeighbor(unsigned number){
+  deque<Node*> neighbors = GetNeighbors();
+  Node* curr_neighbors; 
+
+  for(int i = 0; i < neighbors.size(); i++){
+    curr_neighbors = neighbors[i];
+    if(curr_neighbors->number == number){
+      return curr_neighbors;
+    }
+  } 
+  return NULL;
 }
 
 Table *Node::GetRoutingTable() const
 {
+  if(table){
+    return table;
+  } 
+  else{
+    cout<<"error in GetRoutingTable()" <<endl;
+  }
 }
-
 
 ostream & Node::Print(ostream &os) const
 {
