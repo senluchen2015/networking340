@@ -27,9 +27,17 @@ class Table {
 #if defined(DISTANCEVECTOR)
 
 #include <deque>
+#include <map>
 
 class Table {
+ 
  public:
+  map<unsigned, map<unsigned,double> > table; 
+  Table(){}
+  ~Table(){} 
+  void UpdateTable(unsigned key, map<unsigned,double> value){
+    table[key] = value;
+  } 
   ostream & Print(ostream &os) const;
 };
 #endif

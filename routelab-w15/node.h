@@ -21,6 +21,7 @@ class Node {
   SimulationContext    *context;
   double   bw;
   double   lat;
+  Table * table; 
 
 #if defined(LINKSTATE)
 #endif
@@ -38,7 +39,7 @@ class Node {
   virtual ~Node();
 
   virtual bool Matches(const Node &rhs) const;
-
+  
   virtual void SetNumber(const unsigned n);
   virtual unsigned GetNumber() const;
 
@@ -61,6 +62,8 @@ class Node {
   virtual Node *GetNextHop(const Node *destination) const;
   virtual Table *GetRoutingTable() const;
 
+  void PostEvent(const Link *l);
+  virtual Node * FindNeighbor(unsigned number) const;
   virtual ostream & Print(ostream &os) const;
 
 };

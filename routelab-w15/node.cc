@@ -147,11 +147,29 @@ ostream & Node::Print(ostream &os) const
 
 
 #if defined(DISTANCEVECTOR)
+void Node::PostEvent(const Link *l){ 
+   double setTime = context->GetTime() + l->GetLatency();
+   EventType type = ROUTING_MESSAGE_ARRIVAL;
+   Node *handler_node = FindNeighbor(l->GetDest());
+   RoutingMessage message = RoutingMessage(this);
+   Event e = Event(setTime, type, handler_node, &message);
+   context -> PostEvent(&e);  
+}
 
 void Node::LinkHasBeenUpdated(const Link *l)
 {
   // update our table
+  map<unsigned, double> dest_map = table->table[l->GetDest()];
+  dest_map[l->GetDest()] = l->GetLatency(); 
+  table->UpdateTable(l->GetDest(), dest_map);
+  
   // send out routing mesages
+  deque<Link*> *out_going_links = context -> GetOutgoingLinks(this);
+  for (unsigned int i = 0; i < out_going_links->size(); i++){
+    PostEvent(out_going_links->front());
+    out_going_links->pop_front();
+  }  
+
   cerr << *this<<": Link Update: "<<*l<<endl;
 }
 
@@ -169,12 +187,44 @@ void Node::TimeOut()
 
 Node *Node::GetNextHop(const Node *destination) const
 {
+  map<unsigned, double> curr_map;
+  double min = -1;
+  unsigned min_number = 0;
+  Node *returned_node;  
+  for (map<unsigned, map<unsigned, double> >::iterator it = table->table.begin(); it != table->table.end(); ++it){
+    curr_map = it->second;
+    if(min == -1 || curr_map[destination->number] < min){
+      min = curr_map[destination->number]; 
+      min_number = it->first;
+    } 
+  }
+  returned_node = FindNeighbor(min_number);
+  return returned_node; 
+}
+
+Node *Node::FindNeighbor(unsigned number) const{
+  deque<Node*> *neighbors = context->GetNeighbors(this);
+  Node* curr_neighbors; 
+
+  for(unsigned int i = 0; i < neighbors->size(); i++){
+    curr_neighbors = neighbors->front();
+    neighbors->pop_front();
+    if(curr_neighbors->number == number){
+      return curr_neighbors;
+    }
+  } 
+  return NULL;
 }
 
 Table *Node::GetRoutingTable() const
 {
+  if(table){
+    return table;
+  } 
+  else{
+    cout<<"error in GetRoutingTable()" <<endl;
+  }
 }
-
 
 ostream & Node::Print(ostream &os) const
 {
