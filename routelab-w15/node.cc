@@ -11,7 +11,7 @@ Node::Node()
 { throw GeneralException(); }
 
 Node::Node(const Node &rhs) : 
-  number(rhs.number), context(rhs.context), bw(rhs.bw), lat(rhs.lat) {}
+  number(rhs.number), context(rhs.context), bw(rhs.bw), lat(rhs.lat), table(rhs.table) {}
 
 Node & Node::operator=(const Node &rhs) 
 {
@@ -155,10 +155,11 @@ void Node::LinkHasBeenUpdated(const Link *l)
 {
   cout << "link has been updated \n" << endl;
   if (!table) {
+    cout << "creating new table \n \n" << endl;
     table = new Table();
   }
   // update our table
-  map<unsigned, map<unsigned, double> > node_table = table -> table; 
+  map<unsigned, map<unsigned, double> > node_table = table->table; 
 
   map<unsigned, double> dest_map; 
   if( node_table.find(l->GetDest()) != node_table.end()){
@@ -177,6 +178,7 @@ void Node::LinkHasBeenUpdated(const Link *l)
   cout << "node of message is: " << message->node << endl;
   cout << "id of node of message is: " << message->node->GetNumber() << endl;
   cout << "table of node of message is: " << message->node->GetRoutingTable() << endl;
+  cout << "this node's table is: " << this->table << endl;
   SendToNeighbors(message);
   cout << "sent routing message to neighbors" << endl;
 
@@ -197,7 +199,8 @@ void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
   }
   unsigned id = m->node->GetNumber();
   //unsigned id = m->node->GetNumber();
-  cout << "got node id of message" << endl;
+  cout << "got node id of message: " << id << endl;
+  cout << "this node's id is: " << number << endl;
 
   // Discover all reachable neighbors in the table.
   Table *t = m->node->GetRoutingTable();
@@ -254,21 +257,24 @@ Node *Node::GetNextHop(const Node *destination) const
     } 
   }
   returned_node = FindNeighbor(min_number);
+  cout << "returning found neighbor " << endl;
   return returned_node; 
 }
 
 Node *Node::FindNeighbor(unsigned number) const{
   cout << "finding neighbors" << endl;
   deque<Node*> *neighbors = context->GetNeighbors(this);
-  Node* curr_neighbors; 
 
-  for(unsigned int i = 0; i < neighbors->size(); i++){
-    curr_neighbors = neighbors->front();
-    neighbors->pop_front();
-    if(curr_neighbors->number == number){
-      return curr_neighbors;
+  cout << "got neighbors of this node" << endl;
+  for(deque<Node*>::iterator it = neighbors->begin(); it != neighbors->end(); it++){
+    cout << "checking neighbors" << endl;
+    if((*it)->GetNumber() == number){
+      cout << "successfully found neighbor: " << number << endl;
+      Node *copynode = new Node(*(*it));
+      return copynode;
     }
   } 
+  cout << "did not find neighbor " << endl;
   return NULL;
 }
 

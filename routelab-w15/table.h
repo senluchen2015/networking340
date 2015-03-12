@@ -41,8 +41,10 @@ class Table {
 
   Table(){}
   ~Table(){} 
-  void UpdateTable(unsigned key, map<unsigned,double> value){
+  void UpdateTable(unsigned key, map<unsigned,double> &value){
     table[key] = value;
+    cout << "updated table value: " << value.find(key)->second << endl;
+    cout << "updated table key: " << key << endl;
   } 
 
   set<unsigned> GetReachableNeighbors() {
@@ -50,6 +52,7 @@ class Table {
     cout << "declared neighbors" << endl;
     cout << "internal table is: " << &table << endl;
     cout << "this table's address: " << this << endl;
+    //cout << "table's value for 2: " << &table << endl;
     for (map<unsigned, map<unsigned,double> >::iterator it = table.begin(); it != table.end(); it++) {
       cout << "in outer iterator loop" << endl;
       for (map<unsigned,double>::iterator innerit = it->second.begin(); innerit != it->second.end(); innerit++) {

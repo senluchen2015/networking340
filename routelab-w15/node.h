@@ -21,7 +21,6 @@ class Node {
   SimulationContext    *context;
   double   bw;
   double   lat;
-  Table * table; 
 
 #if defined(LINKSTATE)
 #endif
@@ -33,6 +32,7 @@ class Node {
   // students will add protocol-specific data here
 
  public:
+  Table * table; 
   Node(const unsigned n, SimulationContext *c, double b, double l);
   Node();
   Node(const Node &rhs);

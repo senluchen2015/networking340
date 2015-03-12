@@ -286,27 +286,40 @@ void SimulationContext::CollectPathLinks(const Node &src, const Node &dest, dequ
   }
   unsigned last=n->GetNumber();
   unsigned count=0;
+  cerr << "about to enter loop " << endl;
   while (n->GetNumber()!=dest.GetNumber()) {
+    cerr << "start of loop" << endl;
     Node *next_node=n->GetNextHop(&dest);
+    cerr << "got next hop: " << next_node->GetNumber() << endl;
+    cerr << "called next node's number" << endl;
     if (next_node==0) {
+      cerr << "next hop is NULL " << endl;
       break;
     }
+    cerr << "finding matching node" << endl;
     n=((SimulationContext *)this)->FindMatchingNode(next_node);
+    cerr << "found matching node" << endl;
     if (n==0) {
+      cerr << "matching node to next node is NULL" << endl;
       delete next_node;
       break;
     }
-    //    cerr << last <<" -> " << n->GetNumber()<<endl;
+    cerr << last <<" -> " << n->GetNumber()<<endl;
     path.push_back(Link(last,n->GetNumber(),0,0,0));
+    cerr << "pushed back on path" << endl;
     last=n->GetNumber();
+    cerr << "new last: " << last << endl;
     delete next_node;
+    cerr << "deleted next node" << endl;
     count++;
     if (count>(nodes.size()*2)) {
       cerr << "SimulationContext::CollectPathLinks terminating prematurely due to suspected routing loop!\n";
       break;
     }
+    cerr << "end of loop " << endl;
+    cerr << "n's current value: " << &n << endl;
   }
- 
+  cerr << "reached end of functino " << endl;
 }
 
 
