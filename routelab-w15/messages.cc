@@ -34,9 +34,9 @@ ostream &RoutingMessage::Print(ostream &os) const
   return os;
 }
 
-RoutingMessage::RoutingMessage(Node* n)
+RoutingMessage::RoutingMessage(const Node &n)
 {
-  node = n;   
+  node = new Node(n);
 }
 
 

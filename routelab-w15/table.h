@@ -38,6 +38,7 @@ class Table {
   // neighbors (distance via), and the inner map's keys
   // are the distances (distance to, via neighbor X)
   map<unsigned, map<unsigned,double> > table; 
+
   Table(){}
   ~Table(){} 
   void UpdateTable(unsigned key, map<unsigned,double> value){
@@ -46,8 +47,13 @@ class Table {
 
   set<unsigned> GetReachableNeighbors() {
     set<unsigned> neighbors;
+    cout << "declared neighbors" << endl;
+    cout << "internal table is: " << &table << endl;
+    cout << "this table's address: " << this << endl;
     for (map<unsigned, map<unsigned,double> >::iterator it = table.begin(); it != table.end(); it++) {
+      cout << "in outer iterator loop" << endl;
       for (map<unsigned,double>::iterator innerit = it->second.begin(); innerit != it->second.end(); innerit++) {
+        cout << "inserting element: " << innerit->first << endl;
         neighbors.insert(innerit->first);
       }
     }
