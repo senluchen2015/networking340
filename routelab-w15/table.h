@@ -28,16 +28,42 @@ class Table {
 
 #include <deque>
 #include <map>
+#include <set>
 
 class Table {
  
  public:
+  // based off of the routing table from the Wikipedia
+  // distance vector algorithm. The outer map's keys are
+  // neighbors (distance via), and the inner map's keys
+  // are the distances (distance to, via neighbor X)
   map<unsigned, map<unsigned,double> > table; 
   Table(){}
   ~Table(){} 
   void UpdateTable(unsigned key, map<unsigned,double> value){
     table[key] = value;
   } 
+
+  set<unsigned> GetReachableNeighbors() {
+    set<unsigned> neighbors;
+    for (map<unsigned, map<unsigned,double> >::iterator it = table.begin(); it != table.end(); it++) {
+      for (map<unsigned,double>::iterator innerit = it->second.begin(); innerit != it->second.end(); innerit++) {
+        neighbors.insert(innerit->first);
+      }
+    }
+    return neighbors;
+  }
+
+  double GetMinDistance(unsigned destId) {
+    double minDistance = -1;
+    for (map<unsigned, map<unsigned,double> >::iterator it = table.begin(); it != table.end(); it++) {
+      if ((it->second.find(destId) != it->second.end() && it->second.find(destId)->second < minDistance) || minDistance < 0) {
+        minDistance = it->second.find(destId)->second;
+      }
+    }
+    return minDistance;
+  }
+
   ostream & Print(ostream &os) const;
 };
 #endif

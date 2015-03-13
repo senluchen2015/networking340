@@ -43,11 +43,21 @@ Node::~Node()
 // so that the corresponding node can recieve the ROUTING_MESSAGE_ARRIVAL event at the proper time
 void Node::SendToNeighbors(const RoutingMessage *m)
 {
+  deque<Node*> *neighbors = GetNeighbors();
+  for (deque<Node*>::iterator it = neighbors->begin(); it != neighbors->end(); it++) {
+    SendToNeighbor(*it, m);
+  }
 }
 
 void Node::SendToNeighbor(const Node *n, const RoutingMessage *m)
 {
-
+   Link *l = context->FindMatchingLink(&Link(number, n->number, 0, 0, 0));
+   double setTime = context->GetTime() + l->GetLatency();
+   EventType type = ROUTING_MESSAGE_ARRIVAL;
+   Node *handler_node = FindNeighbor(l->GetDest());
+   RoutingMessage message = RoutingMessage(*m);
+   Event e = Event(setTime, type, handler_node, &message);
+   context -> PostEvent(&e);   
 }
 
 deque<Node*> *Node::GetNeighbors()
@@ -147,14 +157,6 @@ ostream & Node::Print(ostream &os) const
 
 
 #if defined(DISTANCEVECTOR)
-void Node::PostEvent(const Link *l){ 
-   double setTime = context->GetTime() + l->GetLatency();
-   EventType type = ROUTING_MESSAGE_ARRIVAL;
-   Node *handler_node = FindNeighbor(l->GetDest());
-   RoutingMessage message = RoutingMessage(this);
-   Event e = Event(setTime, type, handler_node, &message);
-   context -> PostEvent(&e);  
-}
 
 void Node::LinkHasBeenUpdated(const Link *l)
 {
@@ -164,22 +166,45 @@ void Node::LinkHasBeenUpdated(const Link *l)
   table->UpdateTable(l->GetDest(), dest_map);
   
   // send out routing mesages
-  deque<Link*> *out_going_links = context -> GetOutgoingLinks(this);
-  for (unsigned int i = 0; i < out_going_links->size(); i++){
-    PostEvent(out_going_links->front());
-    out_going_links->pop_front();
-  }  
+  RoutingMessage message = RoutingMessage(this);
+  SendToNeighbors(&message);
 
   cerr << *this<<": Link Update: "<<*l<<endl;
 }
 
-
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
+  bool updated = false;
+  // Check the id number of the incoming message
+  unsigned id = m->node->GetNumber();
 
+  // Discover all reachable neighbors in the table.
+  Table *t = m->node->GetRoutingTable();
+  set<unsigned> neighbors = t->GetReachableNeighbors();
+
+  // For each reachable neighbor, calculate the minimum distance 
+  // to that neighbor, plus the distance of this node to the 
+  // sender node. If this distance is less than the current distance
+  // from this node to the neighbor or the distance
+  // is undefined, update the value to the calculated distance.
+  for (set<unsigned>::iterator it = neighbors.begin(); it != neighbors.end(); it++) {
+    double minDistance = t->GetMinDistance(*it) + table->table[id][id];
+    if (minDistance < 0) {
+      return;
+    }
+    if (table->table[id].find(*it) == table->table[id].end() || minDistance < table->table[id][*it]) {
+      table->table[id][*it] = minDistance;
+      updated = true;
+    }
+  }
+  if (updated) {
+    // post the updated table
+    RoutingMessage message = RoutingMessage(this);
+    SendToNeighbors(&message);
+  }
 }
 
-void Node::TimeOut()
+void Node::TimeOut() 
 {
   cerr << *this << " got a timeout: ignored"<<endl;
 }
@@ -221,9 +246,8 @@ Table *Node::GetRoutingTable() const
   if(table){
     return table;
   } 
-  else{
-    cout<<"error in GetRoutingTable()" <<endl;
-  }
+  cout<<"error in GetRoutingTable()" <<endl;
+  return NULL;
 }
 
 ostream & Node::Print(ostream &os) const
