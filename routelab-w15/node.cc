@@ -161,7 +161,13 @@ ostream & Node::Print(ostream &os) const
 void Node::LinkHasBeenUpdated(const Link *l)
 {
   // update our table
-  map<unsigned, double> dest_map = table->table[l->GetDest()];
+  map<unsigned, map<unsigned, double> > node_table = table -> table; 
+
+  map<unsigned, double> dest_map; 
+  if( node_table.find(l->GetDest()) != node_table.end()){
+    // table does have this entry
+    dest_map = node_table[l->GetDest()];
+  }
   dest_map[l->GetDest()] = l->GetLatency(); 
   table->UpdateTable(l->GetDest(), dest_map);
   

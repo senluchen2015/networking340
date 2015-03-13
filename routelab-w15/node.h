@@ -63,8 +63,7 @@ class Node {
   virtual Node *GetNextHop(const Node *destination) const;
   virtual Table *GetRoutingTable() const;
 
-  virtual ostream & Print(ostream &os) const;
-
+ virtual ostream & Print(ostream &os) const;
 };
 
 inline ostream & operator<<(ostream &os, const Node &n) { return n.Print(os);}
