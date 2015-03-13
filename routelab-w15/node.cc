@@ -159,10 +159,10 @@ void Node::PostEvent(const Link *l){
 void Node::LinkHasBeenUpdated(const Link *l)
 {
   // update our table
-  Table *node_table = table -> table; 
+  map<unsigned, map<unsigned, double> > node_table = table -> table; 
 
   map<unsigned, double> dest_map; 
-  if( node_table->find(l->GetDest()) != node_table->end()){
+  if( node_table.find(l->GetDest()) != node_table.end()){
     // table does have this entry
     dest_map = node_table[l->GetDest()];
   }
