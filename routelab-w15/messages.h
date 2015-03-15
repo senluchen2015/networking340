@@ -15,11 +15,15 @@ struct RoutingMessage {
 
 #if defined(LINKSTATE)
 struct RoutingMessage {
+  map<unsigned, double> neighbor_map;
+  unsigned node_id;
+  unsigned seq_num;
 
   RoutingMessage();
   RoutingMessage(const RoutingMessage &rhs);
   RoutingMessage &operator=(const RoutingMessage &rhs);
 
+  RoutingMessage(map<unsigned, double>n_map, unsigned id, unsigned s_num);
   ostream & Print(ostream &os) const;
 };
 #endif

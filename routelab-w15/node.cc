@@ -70,6 +70,22 @@ bool Node::Matches(const Node &rhs) const
   return number==rhs.number;
 }
 
+Node *Node::FindNeighbor(unsigned number) const{
+  //cout << "finding neighbors" << endl;
+  deque<Node*> *neighbors = context->GetNeighbors(this);
+
+  //cout << "got neighbors of this node" << endl;
+  for(deque<Node*>::iterator it = neighbors->begin(); it != neighbors->end(); it++){
+    //cout << "checking neighbors" << endl;
+    if((*it)->GetNumber() == number){
+      //cout << "successfully found neighbor: " << number << endl;
+      Node *copynode = new Node(*(*it));
+      return copynode;
+    }
+  } 
+  //cout << "did not find neighbor " << endl;
+  return NULL;
+}
 
 #if defined(GENERIC)
 void Node::LinkHasBeenUpdated(const Link *l)
@@ -115,13 +131,35 @@ ostream & Node::Print(ostream &os) const
 
 void Node::LinkHasBeenUpdated(const Link *l)
 {
+  
   cerr << *this<<": Link Update: "<<*l<<endl;
+  if (!table){
+    table = new Table();
+  }
+  
+  // update our own table
+  table->table[l->GetSrc()][l->GetDest()] = l->GetLatency(); 
+  seq_map[number]++;
+  // flood neighbors
+  RoutingMessage *message = new RoutingMessage(table->table[l->GetSrc()], number, seq_map[number]);
+  SendToNeighbors(message);
+  
+
+  cerr << "Link Update Complete" <<endl; 
 }
 
 
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
-  cerr << *this << " Routing Message: "<<*m;
+  // cerr << *this << " Routing Message: "<<*m;
+  
+  if (m->seq_num > seq_map[m->node_id]){
+    cout << "seq_num: " << m->seq_num << endl;
+    table->table[m->node_id] = m->neighbor_map;
+    SendToNeighbors(m);
+    seq_map[m->node_id] = m->seq_num;
+  } 
+   
 }
 
 void Node::TimeOut()
@@ -131,14 +169,64 @@ void Node::TimeOut()
 
 Node *Node::GetNextHop(const Node *destination) const
 {
-  // WRITE
+  vector<unsigned> visited_nodes; 
+  map<unsigned, pair<unsigned, double> > dist_map;
+  unsigned curr_pos = number;
+  // initialize dist_map 
+  for( map<unsigned, map<unsigned, double> >::const_iterator it = table->table.begin(); it != table->table.end(); it++){
+    dist_map[it->first] = make_pair(it->first, 0); 
+  }  
+  
+  cout << "initialized dist_map" << endl;
+  
+  while(find(visited_nodes.begin(), visited_nodes.end(), destination->number) == visited_nodes.end()){
+    // update distances for one row
+    cout << "destination node: " << destination->number << endl;
+    cout << "updating distance for one row" << endl;
+    for( map<unsigned, double>::const_iterator it = table->table[curr_pos].begin(); it != table->table[curr_pos].end(); it++){
+      if(find(visited_nodes.begin(), visited_nodes.end(), it->first) == visited_nodes.end()){
+        if(dist_map[it->first].second == 0 || dist_map[curr_pos].second + table->table[curr_pos][it->first] < dist_map[it->first].second){
+           dist_map[it->first] = make_pair(curr_pos, dist_map[curr_pos].second + table->table[curr_pos][it->first]); 
+        }
+      }
+    }
+    
+    cout << "row distance updated" << endl; 
+    // find min_distance of the row
+    unsigned min_distance = 0;
+    for(map<unsigned, pair<unsigned, double> >::iterator it = dist_map.begin(); it != dist_map.end(); it++){
+      if(find(visited_nodes.begin(), visited_nodes.end(), it->first) == visited_nodes.end() && it->second.second > 0){
+        if(min_distance == 0 || it->second.second < min_distance){
+          min_distance = it->second.second;
+          curr_pos = it->first; 
+        }
+      }
+    }
+    visited_nodes.push_back(curr_pos);
+    cout << *table << endl;
+    cout << "node: " << curr_pos << " pushed back" << endl; 
+  }
+   
+  // traverse back to find the next node
+  cout << "traversing back " << endl;
+  unsigned bt_pos = destination -> number; 
+  while(1){
+    if(dist_map[bt_pos].first== number){
+      Node *next_hop = FindNeighbor(bt_pos);
+      return next_hop;  
+    }
+    bt_pos = dist_map[bt_pos].first;  
+  }
+  
   return 0;
 }
 
 Table *Node::GetRoutingTable() const
 {
-  // WRITE
-  return 0;
+  if(table){
+    return table;
+  }  
+  return NULL;
 }
 
 
@@ -272,22 +360,6 @@ Node *Node::GetNextHop(const Node *destination) const
   return returned_node; 
 }
 
-Node *Node::FindNeighbor(unsigned number) const{
-  //cout << "finding neighbors" << endl;
-  deque<Node*> *neighbors = context->GetNeighbors(this);
-
-  //cout << "got neighbors of this node" << endl;
-  for(deque<Node*>::iterator it = neighbors->begin(); it != neighbors->end(); it++){
-    //cout << "checking neighbors" << endl;
-    if((*it)->GetNumber() == number){
-      //cout << "successfully found neighbor: " << number << endl;
-      Node *copynode = new Node(*(*it));
-      return copynode;
-    }
-  } 
-  //cout << "did not find neighbor " << endl;
-  return NULL;
-}
 
 Table *Node::GetRoutingTable() const
 {

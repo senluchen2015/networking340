@@ -17,9 +17,26 @@ class Table {
 
 
 #if defined(LINKSTATE)
+#include <deque>
+#include <map>
+#include <set>
+
 class Table {
   // Students should write this class
- public:
+  public:
+  // outside map will be all the node in the topology
+  // inside map will be the node's neighbor
+  // double will be the latency
+
+  map<unsigned, map<unsigned,double> > table; 
+  Table(){}
+  ~Table(){}
+   void UpdateTable(unsigned key, map<unsigned,double> &value){
+    table[key] = value;
+    cout << "updated table value: " << value.find(key)->second << endl;
+    cout << "updated table key: " << key << endl;
+  } 
+
   ostream & Print(ostream &os) const;
 };
 #endif

@@ -17,8 +17,12 @@ ostream &RoutingMessage::Print(ostream &os) const
   return os;
 }
 
-RoutingMessage::RoutingMessage()
-{}
+RoutingMessage::RoutingMessage(map<unsigned, double>n_map, unsigned id, unsigned s_num )
+{
+  neighbor_map = n_map;
+  node_id = id;
+  seq_num = s_num;
+}
 
 
 RoutingMessage::RoutingMessage(const RoutingMessage &rhs)

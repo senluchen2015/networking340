@@ -21,12 +21,15 @@ class Node {
   SimulationContext    *context;
   double   bw;
   double   lat;
-
+ 
 #if defined(LINKSTATE)
+  public:
+    map<unsigned, unsigned> seq_map;
 #endif
 
 #if defined(DISTANCEVECTOR)
-  virtual Node * FindNeighbor(unsigned number) const;
+  #include <vector>
+  #include <utility>
 #endif
 
   // students will add protocol-specific data here
@@ -62,8 +65,8 @@ class Node {
   virtual void TimeOut();
   virtual Node *GetNextHop(const Node *destination) const;
   virtual Table *GetRoutingTable() const;
-
- virtual ostream & Print(ostream &os) const;
+  virtual Node * FindNeighbor(unsigned number) const;
+  virtual ostream & Print(ostream &os) const;
 };
 
 inline ostream & operator<<(ostream &os, const Node &n) { return n.Print(os);}
