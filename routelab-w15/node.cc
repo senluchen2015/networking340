@@ -1,7 +1,8 @@
 #include "node.h"
 #include "context.h"
 #include "error.h"
-
+#include <iterator> 
+#include <algorithm>
 
 Node::Node(const unsigned n, SimulationContext *c, double b, double l) : 
     number(n), context(c), bw(b), lat(l) 
@@ -44,13 +45,13 @@ Node::~Node()
 void Node::SendToNeighbors(const RoutingMessage *m)
 {
   context->SendToNeighbors(this, m);
-  cout << "sent message to all neighbors " << endl;
+  //cout << "sent message to all neighbors " << endl;
 }
 
 void Node::SendToNeighbor(const Node *n, const RoutingMessage *m)
 {
    context->SendToNeighbor(this, n, m);
-   cout << "posted event " << endl;
+   //cout << "posted event " << endl;
 }
 
 deque<Node*> *Node::GetNeighbors()
@@ -153,9 +154,9 @@ ostream & Node::Print(ostream &os) const
 
 void Node::LinkHasBeenUpdated(const Link *l)
 {
-  cout << "link has been updated \n" << endl;
+  cout << "\nlink has been updated \n" << endl;
   if (!table) {
-    cout << "creating new table \n \n" << endl;
+    //cout << "creating new table \n \n" << endl;
     table = new Table();
   }
   // update our table
@@ -163,50 +164,55 @@ void Node::LinkHasBeenUpdated(const Link *l)
 
   map<unsigned, double> dest_map; 
   if( node_table.find(l->GetDest()) != node_table.end()){
-    cout << "table has link entry" << endl;
+    //cout << "table has link entry" << endl;
     // table does have this entry
     dest_map = node_table[l->GetDest()];
   }
-  cout << "getting latency of link " << endl;
+  //cout << "getting latency of link " << endl;
   dest_map[l->GetDest()] = l->GetLatency(); 
   table->UpdateTable(l->GetDest(), dest_map);
-  cout << "updated table with new latency value" << endl;
+  //cout << "updated table with new latency value" << endl;
   
   // send out routing mesages
   RoutingMessage *message = new RoutingMessage(*this);
-  cout << "created routing message to send: " << message << endl;
-  cout << "node of message is: " << message->node << endl;
-  cout << "id of node of message is: " << message->node->GetNumber() << endl;
-  cout << "table of node of message is: " << message->node->GetRoutingTable() << endl;
-  cout << "this node's table is: " << this->table << endl;
+  //cout << "created routing message to send: " << message << endl;
+  //cout << "node of message is: " << message->node << endl;
+  //cout << "id of node of message is: " << message->node->GetNumber() << endl;
+  //cout << "table of node of message is: " << message->node->GetRoutingTable() << endl;
+  //cout << "this node's table is: " << this->table << endl;
   SendToNeighbors(message);
-  cout << "sent routing message to neighbors" << endl;
+  //cout << "sent routing message to neighbors" << endl;
 
   cerr << *this<<": Link Update: "<<*l<<endl;
 }
 
 void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
 {
-  cout << "processing incoming routing message" << endl;
+  cout << "\nprocessing incoming routing message" << endl;
   bool updated = false;
   // Check the id number of the incoming message
   if (!m) {
     return;
   }
-  cout << "message is " << m << endl;
+  //cout << "message is " << m << endl;
   if (m->node) {
-    cout << "node is not null - node is " << m->node << endl;
+    //cout << "node is not null - node is " << m->node << endl;
   }
+  cout << "table before processing message: " << *table << endl;
   unsigned id = m->node->GetNumber();
   //unsigned id = m->node->GetNumber();
-  cout << "got node id of message: " << id << endl;
-  cout << "this node's id is: " << number << endl;
+  //cout << "got node id of message: " << id << endl;
+  //cout << "this node's id is: " << number << endl;
 
   // Discover all reachable neighbors in the table.
   Table *t = m->node->GetRoutingTable();
-  cout << "got table of message: " << t << endl;
+  //cout << "got table of message: " << t << endl;
   set<unsigned> neighbors = t->GetReachableNeighbors();
-  cout << "got all reachable neighbors in table of messages" << endl;
+  cout << "reachable neighbors: " << endl;
+  for(set<unsigned>::iterator it = neighbors.begin(); it != neighbors.end(); it++) {
+    cout << *it << " ";
+  }
+  cout << endl;
 
   // For each reachable neighbor, calculate the minimum distance 
   // to that neighbor, plus the distance of this node to the 
@@ -214,25 +220,28 @@ void Node::ProcessIncomingRoutingMessage(const RoutingMessage *m)
   // from this node to the neighbor or the distance
   // is undefined, update the value to the calculated distance.
   for (set<unsigned>::iterator it = neighbors.begin(); it != neighbors.end(); it++) {
-    cout << "calculating min distance " << endl;
-    double minDistance = t->GetMinDistance(*it) + table->table[id][id];
-    cout << "min distance is " << minDistance << endl;
-    if (minDistance < 0) {
-      return;
-    }
-    cout << "searching our own distances to check if a shorter path is available" << endl;
-    if (table->table[id].find(*it) == table->table[id].end() || minDistance < table->table[id][*it]) {
-      table->table[id][*it] = minDistance;
-      updated = true;
-      cout << "updated table entry due to shorter path " << endl;
+    if ((*it) != this->number) {
+      //cout << "calculating min distance " << endl;
+      double minDistance = t->GetMinDistance(*it) + table->table[id][id];
+      cout << "min distance is " << minDistance << endl;
+      //if (minDistance < 0) {
+        //return;
+      //}
+      //cout << "searching our own distances to check if a shorter path is available" << endl;
+      if (table->table[id].find(*it) == table->table[id].end() || minDistance != table->table[id][*it]) {
+        table->table[id][*it] = minDistance;
+        updated = true;
+        //cout << "updated table entry due to shorter path " << endl;
+      }
     }
   }
   if (updated) {
     // post the updated table
     RoutingMessage *message = new RoutingMessage(*this);
-    cout << "posting new message of our updated table to everyone " << endl;
+    //cout << "posting new message of our updated table to everyone " << endl;
     SendToNeighbors(message);
-    cout << "sent new routing table to neighbors" << endl;
+    cout << "table after processing routing message: " << *table << endl;
+    //cout << "sent new routing table to neighbors" << endl;
   }
 }
 
@@ -244,8 +253,10 @@ void Node::TimeOut()
 
 Node *Node::GetNextHop(const Node *destination) const
 {
-  cout << "getting next hop " << endl;
+  //cout << "getting next hop " << endl;
   map<unsigned, double> curr_map;
+  cout << "source is: " << this->number << " destination is: " << destination->number << endl;
+  cout << "table is: " << *table << endl;
   double min = -1;
   unsigned min_number = 0;
   Node *returned_node;  
@@ -257,24 +268,24 @@ Node *Node::GetNextHop(const Node *destination) const
     } 
   }
   returned_node = FindNeighbor(min_number);
-  cout << "returning found neighbor " << endl;
+  //cout << "returning found neighbor " << endl;
   return returned_node; 
 }
 
 Node *Node::FindNeighbor(unsigned number) const{
-  cout << "finding neighbors" << endl;
+  //cout << "finding neighbors" << endl;
   deque<Node*> *neighbors = context->GetNeighbors(this);
 
-  cout << "got neighbors of this node" << endl;
+  //cout << "got neighbors of this node" << endl;
   for(deque<Node*>::iterator it = neighbors->begin(); it != neighbors->end(); it++){
-    cout << "checking neighbors" << endl;
+    //cout << "checking neighbors" << endl;
     if((*it)->GetNumber() == number){
-      cout << "successfully found neighbor: " << number << endl;
+      //cout << "successfully found neighbor: " << number << endl;
       Node *copynode = new Node(*(*it));
       return copynode;
     }
   } 
-  cout << "did not find neighbor " << endl;
+  //cout << "did not find neighbor " << endl;
   return NULL;
 }
 
@@ -283,7 +294,7 @@ Table *Node::GetRoutingTable() const
   if(table){
     return table;
   } 
-  cout<<"error in GetRoutingTable()" <<endl;
+  //cout<<"error in GetRoutingTable()" <<endl;
   return NULL;
 }
 

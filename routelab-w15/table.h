@@ -49,14 +49,8 @@ class Table {
 
   set<unsigned> GetReachableNeighbors() {
     set<unsigned> neighbors;
-    cout << "declared neighbors" << endl;
-    cout << "internal table is: " << &table << endl;
-    cout << "this table's address: " << this << endl;
-    //cout << "table's value for 2: " << &table << endl;
     for (map<unsigned, map<unsigned,double> >::iterator it = table.begin(); it != table.end(); it++) {
-      cout << "in outer iterator loop" << endl;
       for (map<unsigned,double>::iterator innerit = it->second.begin(); innerit != it->second.end(); innerit++) {
-        cout << "inserting element: " << innerit->first << endl;
         neighbors.insert(innerit->first);
       }
     }
